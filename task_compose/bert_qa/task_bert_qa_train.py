@@ -9,31 +9,33 @@
 
 import argparse
 import json
-import os
 import pathlib
 import re
-from typing import Any, Optional, Union, List
+from abc import ABC
+from typing import Optional
+
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-from pytorch_lightning import Trainer
+from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from torch.nn.modules import CrossEntropyLoss, BCEWithLogitsLoss
 from torch.utils.data.dataloader import DataLoader
-from datahelper.bert_qa.bert_qa_dataset import QADataset, convert_examples_to_features, QAInputExample, QAOutputResult
 from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
-from metrics.bert_qa.qal_metric import compute_predictions_logits, squad_evaluate
 from transformers.models.bert.tokenization_bert import BertTokenizer
 
-from loss.focal_loss import FocalLoss
-from modeling.bert_qa.configure_bert_qa import BertForQAConfig
+from datahelper.bert_qa.bert_qa_dataset import QADataset, convert_examples_to_features, QAInputExample, QAOutputResult
 from loss.dice_loss import DiceLoss
+from loss.focal_loss import FocalLoss
+from metrics.bert_qa.qal_metric import compute_predictions_logits, squad_evaluate
+from modeling.bert_qa.configure_bert_qa import BertForQAConfig
 from modeling.bert_qa.modeling_bert_qa import BertForQuestionAnswering
 
-
 # 设置随机种子
-# seed_everything(0)
-class BerQADataModule(pl.LightningDataModule):
+seed_everything(0)
+
+
+class BerQADataModule(pl.LightningDataModule, ABC):
     def __init__(self, args):
         assert isinstance(args, argparse.Namespace)
         self.args = args
@@ -153,7 +155,7 @@ class BerQADataModule(pl.LightningDataModule):
                           )
 
 
-class BertForQA(pl.LightningModule):
+class BertForQA(pl.LightningModule, ABC):
 
     def __init__(
             self,

@@ -8,9 +8,6 @@
 """
 # 片段中实体关系数量较多，模型效果越突出
 import sys
-
-print(sys.path)
-sys.path.append("/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_code_repository/NlpTaskSpace")
 import argparse
 import json
 import os

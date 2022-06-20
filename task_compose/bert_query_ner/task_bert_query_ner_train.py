@@ -8,24 +8,26 @@
 """
 import argparse
 import os
-from typing import Dict, Any, Optional, Union, List
+from typing import Any, Optional, Union, List
+
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning import Trainer
+from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from pytorch_lightning.utilities.seed import seed_everything
 from tokenizers.implementations import BertWordPieceTokenizer
-from torch.nn.modules import CrossEntropyLoss, BCEWithLogitsLoss
+from torch.nn.modules import BCEWithLogitsLoss
+from torch.optim import SGD
 from torch.utils.data.dataloader import DataLoader
 from transformers import AdamW
-from torch.optim import SGD
+
 from datahelper.bert_mrc.mrc_dataset import MRCNERDataset
 from datahelper.bert_mrc.mrc_dataset import collate_to_max_length
-from metrics.bert_query_ner.query_span_f1 import QuerySpanF1
-from modeling.bert_query_ner.modeling_bert_query_ner import BertQueryNER
-from modeling.bert_query_ner.configure_bert_query_ner import BertQueryNerConfig
-from pytorch_lightning.utilities.seed import seed_everything
 from loss.dice_loss import DiceLoss
-from pytorch_lightning.callbacks import EarlyStopping
+from metrics.bert_query_ner.query_span_f1 import QuerySpanF1
+from modeling.bert_query_ner.configure_bert_query_ner import BertQueryNerConfig
+from modeling.bert_query_ner.modeling_bert_query_ner import BertQueryNER
 
 seed_everything(0)
 
@@ -116,8 +118,10 @@ class BertLabeling(pl.LightningModule):
             optimizer = SGD(optimizer_grouped_parameters, lr=self.args.lr, momentum=0.9)
 
         num_gpus = len([x for x in str(self.trainer.gpus).split(",") if x.strip()])
-        t_total = (len(self.train_dataloader()) // (
-                self.trainer.accumulate_grad_batches * num_gpus) + 1) * self.args.max_epochs
+        # total_step的计算
+
+        t_total = (len(self.train_dataloader()) // self.args.batch_size // (
+                self.trainer.accumulate_grad_batches * max(1, num_gpus))) * self.args.max_epochs
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer, max_lr=self.args.lr, pct_start=float(self.args.warmup_steps / t_total),
             final_div_factor=self.args.final_div_factor,
@@ -252,10 +256,10 @@ class BertLabeling(pl.LightningModule):
             for tmp_start in start_positions:
                 tmp_ends = [tmp for tmp in end_positions if tmp >= tmp_start]
                 for tmp_end in tmp_ends:
-                # if len(tmp_end) == 0:
-                #     continue
-                # else:
-                #     tmp_end = min(tmp_end)
+                    # if len(tmp_end) == 0:
+                    #     continue
+                    # else:
+                    #     tmp_end = min(tmp_end)
                     if match_pred[tmp_start][tmp_end]:
                         prob = span_logit[tmp_start][tmp_end]
                         entity_span.append(self.tokenizer.decode(tokens[tmp_start:tmp_end + 1].tolist()))

@@ -16,6 +16,7 @@ from sklearn.metrics import ndcg_score
 
 import lightgbm as lgb
 from sklearn.metrics import classification_report
+
 if __name__ == '__main__':
     boston = load_boston()
     data = boston.data
