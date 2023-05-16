@@ -11,7 +11,7 @@ from torch import Tensor
 from transformers import BertModel, BertPreTrainedModel
 
 
-def truncated_normal_(tensor, mean=0, std=1):
+def truncated_normal_(tensor, mean=0, std=1.0):
     size = tensor.shape
     tmp = tensor.new_empty(size + (4,)).normal_()
     valid = (tmp < 2) & (tmp > -2)

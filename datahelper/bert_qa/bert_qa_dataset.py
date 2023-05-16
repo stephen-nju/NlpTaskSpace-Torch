@@ -445,6 +445,7 @@ class QADataset(Dataset):
             "token_type_ids": token_type_ids
         }
         label_mask = [1] + feature.token_type_ids[1:]
+        # TODO label mask right?
         start_position = torch.tensor(feature.start_position, dtype=torch.long)
         end_position = torch.tensor(feature.end_position, dtype=torch.long)
         label_mask = torch.tensor(label_mask, dtype=torch.long)
