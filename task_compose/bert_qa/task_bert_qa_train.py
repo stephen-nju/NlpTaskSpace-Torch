@@ -32,7 +32,7 @@ from modeling.bert_qa.configure_bert_qa import BertForQAConfig
 from modeling.bert_qa.modeling_bert_qa import BertForQuestionAnswering
 
 # 设置随机种子
-seed_everything(0)
+seed_everything(42)
 
 
 class BerQADataModule(pl.LightningDataModule, ABC):
@@ -40,7 +40,9 @@ class BerQADataModule(pl.LightningDataModule, ABC):
         assert isinstance(args, argparse.Namespace)
         self.args = args
         self.tokenizer = BertTokenizer.from_pretrained(args.bert_config_dir)
-        self.data_dir = pathlib.Path(args.data_dir)
+        self.train_data=args.train_data
+        self.test_data=args.test_data
+        self.dev_data=args.dev_data
         self.batch_size = args.batch_size
         self.train_feature = []
         self.val_examples = []
@@ -57,7 +59,7 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                 lines = line.strip().split("\t")
                 assert len(lines) == 2
                 title = None
-                question_text = "请找出下列文本中的主题词"
+                question_text = "标题中产品提及有哪些"
                 context_text = lines[0]
                 ths = json.loads(lines[1])
                 is_impossible = False
@@ -123,15 +125,15 @@ class BerQADataModule(pl.LightningDataModule, ABC):
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
-            train_file = self.data_dir.joinpath("qa_train.txt")
-            self.train_feature = convert_examples_to_features(examples=list(self.read_train_data(train_file))[:10],
+            train_file = self.train_data
+            self.train_feature = convert_examples_to_features(examples=list(self.read_train_data(train_file)),
                                                               tokenizer=self.tokenizer,
                                                               max_query_length=self.args.max_query_length,
                                                               max_seq_length=self.args.max_seq_length,
                                                               doc_stride=self.args.doc_stride,
                                                               is_training=True
                                                               )
-            self.val_examples = list(self.read_train_data(train_file))[:100]
+            self.val_examples = list(self.read_train_data(train_file))
             self.val_features = convert_examples_to_features(examples=self.val_examples,
                                                              tokenizer=self.tokenizer,
                                                              max_query_length=self.args.max_query_length,
@@ -164,8 +166,6 @@ class BertForQA(pl.LightningModule, ABC):
     ):
         super().__init__()
         self.args = args
-        self.bert_dir = self.args.bert_config_dir
-        self.data_dir = self.args.data_dir
         bert_config = BertForQAConfig.from_pretrained(self.args.bert_config_dir)
         self.model = BertForQuestionAnswering.from_pretrained(self.args.bert_config_dir,
                                                               config=bert_config)
@@ -215,8 +215,9 @@ class BertForQA(pl.LightningModule, ABC):
                                           weight_decay=self.args.weight_decay)
 
         num_gpus = len([x for x in str(self.args.gpus).split(",") if x.strip()])
-        t_total = (len(self.train_dataloader()) // (
-                self.args.accumulate_grad_batches * num_gpus) + 1) * self.args.max_epochs
+        # 注：只有在使用pytorch Lightning的LightningDataModule 时候才可以使用该方式回去训练集大小
+        t_total = (len(self.trainer.datamodule.train_dataloader()) // (
+                self.trainer.accumulate_grad_batches * num_gpus) + 1) * self.args.max_epochs
         warmup_steps = int(self.args.warmup_proportion * t_total)
         if self.args.lr_scheduler == "onecycle":
             scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -369,12 +370,10 @@ if __name__ == '__main__':
 
     parser.add_argument("--output_dir", type=str, default="./output_dir/", help="")
 
-    parser.add_argument("--data_dir", type=str,
-                        default="../../data/squad",
-                        help="data dir")
-    parser.add_argument("--bert_config_dir", type=str,
-                        default="/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model",
-                        help="bert config dir")
+    parser.add_argument("--train_data", type=str,default="",help="train data path")
+    parser.add_argument("--test_data", type=str,default="",help="test data path")
+    parser.add_argument("--dev_data", type=str,default="",help="dev data path")
+    parser.add_argument("--bert_config_dir", type=str,default="",help="bert config dir")
     parser.add_argument("--pretrained_checkpoint", default="", type=str, help="pretrained checkpoint path")
     parser.add_argument("--max_length", type=int, default=128, help="max length of dataset")
     parser.add_argument("--batch_size", type=int, default=8, help="batch size")
