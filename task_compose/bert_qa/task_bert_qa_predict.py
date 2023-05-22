@@ -38,7 +38,6 @@ class BerQADataModule(pl.LightningDataModule):
         assert isinstance(args, argparse.Namespace)
         self.args = args
         self.tokenizer = BertTokenizer.from_pretrained(args.bert_config_dir)
-        self.data_dir = pathlib.Path(args.data_dir)
         self.batch_size = args.batch_size
         self.train_feature = []
         self.val_examples = []
@@ -120,16 +119,8 @@ class BerQADataModule(pl.LightningDataModule):
         return data_parser
 
     def setup(self, stage: Optional[str] = None):
-        if stage == "fit" or stage is None:
-            train_file = self.data_dir.joinpath("qa_train.txt")
-            self.train_feature = convert_examples_to_features(examples=list(self.read_train_data(train_file))[:10],
-                                                              tokenizer=self.tokenizer,
-                                                              max_query_length=self.args.max_query_length,
-                                                              max_seq_length=self.args.max_seq_length,
-                                                              doc_stride=self.args.doc_stride,
-                                                              is_training=True
-                                                              )
-            self.val_examples = list(self.read_train_data(train_file))[:100]
+        if stage == "predict" or stage is None:
+            self.val_examples = list(self.read_train_data(self.args.dev_data))
             self.val_features = convert_examples_to_features(examples=self.val_examples,
                                                              tokenizer=self.tokenizer,
                                                              max_query_length=self.args.max_query_length,
@@ -137,13 +128,6 @@ class BerQADataModule(pl.LightningDataModule):
                                                              doc_stride=self.args.doc_stride,
                                                              is_training=False
                                                              )
-
-    def train_dataloader(self):
-        return DataLoader(dataset=QADataset(features=self.train_feature),
-                          batch_size=self.batch_size,
-                          num_workers=4,
-                          pin_memory=True,
-                          )
 
     def predict_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
         return DataLoader(dataset=QADataset(features=self.val_features),
@@ -314,18 +298,15 @@ class BertForQA(pl.LightningModule):
                 end_logits=end.squeeze().detach().cpu().tolist(),
                 cls_logits=None
             ))
-        self.all_gather(res)
         return res
 
     def on_predict_epoch_end(self, results: List[Any]) -> None:
         all_results = []
         for result in results:
             d = itertools.chain.from_iterable(result)
-            all_results.extend(list(d))
+            all_results.extend(d)
         all_examples = self.trainer.datamodule.val_examples
         all_features = self.trainer.datamodule.val_features
-        for output in results:
-            all_results.extend(output)
         all_predict = compute_predictions_logits(all_examples=all_examples,
                                                  all_features=all_features,
                                                  all_results=all_results,
@@ -337,18 +318,14 @@ class BertForQA(pl.LightningModule):
                                                  version_2_with_negative=self.args.with_negative,
                                                  null_score_diff_threshold=0,
                                                  )
-        results = squad_evaluate(all_examples, all_predict)
-        print(results)
-
+        print(all_predict)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Training")
 
     parser.add_argument("--output_dir", type=str, default="./output_dir/", help="")
 
-    parser.add_argument("--data_dir", type=str,
-                        default="../../data/squad",
-                        help="data dir")
+    parser.add_argument("--dev_data", type=str,default="",help="dev data path")
     parser.add_argument("--bert_config_dir", type=str,
                         default="E:\\项目资料\\主题挖掘项目\\DataRepository\\bert_model",
                         help="bert config dir")
@@ -377,9 +354,9 @@ if __name__ == '__main__':
     data_module = BerQADataModule(args)
     model = BertForQA(args)
     CHECKPOINTS = "./output_dir/epoch=0-step=1249.ckpt"
-    hparams_file = "./output_dir/lightning_logs/version_0/hparams.yaml"
+    hparams_file = "./output_dir/lightning_logs/version_0/hparams.yaml"attention_mask"
     model = model.load_from_checkpoint(
         hparams_file=hparams_file,
         checkpoint_path=CHECKPOINTS)
-
+    model.eval()
     trainer.predict(model, datamodule=data_module)

@@ -8,7 +8,7 @@
 """
 import torch.nn as nn
 from torch import Tensor
-from transformers import BertModel, BertPreTrainedModel
+from transformers.models.bert import BertModel, BertPreTrainedModel
 
 
 def truncated_normal_(tensor, mean=0, std=1.0):

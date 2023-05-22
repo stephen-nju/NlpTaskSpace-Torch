@@ -108,7 +108,7 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                                  help="The maximum total input sequence length after WordPiece tokenization. "
                                       "Sequences longer than this will be truncated, "
                                       "and sequences shorter than this will be padded.")
-        data_parser.add_argument("--doc_stride", type=int, default=128,
+        data_parser.add_argument("--doc_stride", type=int, default=512,
                                  help="When splitting up a long document into chunks,"
                                       " how much stride to take between chunks.")
 
@@ -137,7 +137,7 @@ class BerQADataModule(pl.LightningDataModule, ABC):
             self.val_features = convert_examples_to_features(examples=self.val_examples,
                                                              tokenizer=self.tokenizer,
                                                              max_query_length=self.args.max_query_length,
-                                                             max_seq_length=self.args.max_query_length,
+                                                             max_seq_length=self.args.max_seq_length,
                                                              doc_stride=self.args.doc_stride,
                                                              is_training=False
                                                              )
@@ -363,6 +363,7 @@ class BertForQA(pl.LightningModule, ABC):
                                                  )
 
         results = squad_evaluate(all_examples, all_predict)
+        print(results)
 
 
 if __name__ == '__main__':
