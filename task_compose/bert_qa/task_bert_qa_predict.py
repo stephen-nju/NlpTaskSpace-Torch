@@ -318,7 +318,9 @@ class BertForQA(pl.LightningModule):
                                                  version_2_with_negative=self.args.with_negative,
                                                  null_score_diff_threshold=0,
                                                  )
-        print(all_predict)
+        results = squad_evaluate(all_examples, all_predict)
+        print(results)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Training")
@@ -354,9 +356,9 @@ if __name__ == '__main__':
     data_module = BerQADataModule(args)
     model = BertForQA(args)
     CHECKPOINTS = "./output_dir/epoch=0-step=1249.ckpt"
-    hparams_file = "./output_dir/lightning_logs/version_0/hparams.yaml"attention_mask"
+    hparams_file = "./output_dir/lightning_logs/version_0/hparams.yaml"
     model = model.load_from_checkpoint(
         hparams_file=hparams_file,
         checkpoint_path=CHECKPOINTS)
-    model.eval()
+
     trainer.predict(model, datamodule=data_module)

@@ -97,23 +97,49 @@ def whitespace_tokenize(text):
     return tokens
 
 
-@dataclasses.dataclass
-class QAInputExample:
-    qas_id: Any
-    question_text: str
-    context_text: str
-    answer_text: str
-    raw_start_position: int
-    title: Any
-    is_impossible: bool = False
-    answers: list = dataclasses.field(default_factory=list)
-    start_position: int = dataclasses.field(default=0)
-    end_position: int = dataclasses.field(default=0)
 
-    def __post_init__(self):
+
+class QAInputExample:
+    """
+    A single training/test example for the Squad dataset, as loaded from disk.
+
+    Args:
+        qas_id: The example's unique identifier
+        question_text: The question string
+        context_text: The context string
+        answer_text: The answer string
+        start_position_character: The character position of the start of the answer
+        title: The title of the example
+        answers: None by default, this is used during evaluation. Holds answers as well as their start positions.
+        is_impossible: False by default, set to True if the example has no possible answer.
+    """
+
+    def __init__(
+        self,
+        qas_id,
+        question_text,
+        context_text,
+        answer_text,
+        raw_start_position,
+        title,
+        answers=[],
+        is_impossible=False,
+    ):
+        self.qas_id = qas_id
+        self.question_text = question_text
+        self.context_text = context_text
+        self.answer_text = answer_text
+        self.title = title
+        self.is_impossible = is_impossible
+        self.answers = answers
+        self.raw_start_position=raw_start_position
+
+        self.start_position, self.end_position = 0, 0
+
         doc_tokens = []
         char_to_word_offset = []
         prev_is_whitespace = True
+
         # Split on whitespace so that different tokens may be attributed to their original position.
         for c in self.context_text:
             if _is_whitespace(c):
@@ -129,11 +155,66 @@ class QAInputExample:
         self.doc_tokens = doc_tokens
         self.char_to_word_offset = char_to_word_offset
 
+        # Start and end positions only has a value during evaluation.
         if self.raw_start_position is not None and not self.is_impossible:
             self.start_position = char_to_word_offset[self.raw_start_position]
             self.end_position = char_to_word_offset[
                 min(self.raw_start_position + len(self.answer_text) - 1, len(char_to_word_offset) - 1)
             ]
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        s = ""
+        s += "qas_id: %s" % (str(self.qas_id))
+        s += ", question_text: %s" % (self.question_text)
+        s += ", doc_tokens: [%s]" % (" ".join(self.doc_tokens))
+        if self.start_position:
+            s += ", start_position: %d" % (self.start_position)
+        if self.start_position:
+            s += ", end_position: %d" % (self.end_position)
+        if self.start_position:
+            s += ", is_impossible: %r" % (self.is_impossible)
+        return s
+
+# @dataclasses.dataclass
+# class QAInputExample:
+#     qas_id: Any
+#     question_text: str
+#     context_text: str
+#     answer_text: str
+#     raw_start_position: int
+#     title: Any
+#     is_impossible: bool = False
+#     answers: list = dataclasses.field(default_factory=list)
+#     start_position: int = dataclasses.field(default=0)
+#     end_position: int = dataclasses.field(default=0)
+
+#     def __post_init__(self):
+#         doc_tokens = []
+#         char_to_word_offset = []
+#         prev_is_whitespace = True
+#         # Split on whitespace so that different tokens may be attributed to their original position.
+#         for c in self.context_text:
+#             if _is_whitespace(c):
+#                 prev_is_whitespace = True
+#             else:
+#                 if prev_is_whitespace:
+#                     doc_tokens.append(c)
+#                 else:
+#                     doc_tokens[-1] += c
+#                 prev_is_whitespace = False
+#             char_to_word_offset.append(len(doc_tokens) - 1)
+
+#         self.doc_tokens = doc_tokens
+#         self.char_to_word_offset = char_to_word_offset
+
+#         if self.raw_start_position is not None and not self.is_impossible:
+#             self.start_position = char_to_word_offset[self.raw_start_position]
+#             self.end_position = char_to_word_offset[
+#                 min(self.raw_start_position + len(self.answer_text) - 1, len(char_to_word_offset) - 1)
+#             ]
 
 
 @dataclasses.dataclass
