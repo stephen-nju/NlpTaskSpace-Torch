@@ -13,7 +13,7 @@ from transformers.trainer_pt_utils import LabelSmoother
 
 from transformers.trainer import *
 
-from datahelper.uie.seq2seq.constraint_decoder import get_constraint_decoder
+from task_compose.uie.seq2seq.constraint_decoder import get_constraint_decoder
 
 
 @dataclass
@@ -36,7 +36,6 @@ class ConstraintSeq2SeqTrainer(Seq2SeqTrainer):
 
         self.decoding_format = decoding_format
         self.decoding_type_schema = decoding_type_schema
-
         # Label smoothing by sum token loss, different from different Label smootheing
         if self.args.label_smoothing_factor != 0:
             self.label_smoother = LabelSmoother(epsilon=self.args.label_smoothing_factor)
@@ -184,8 +183,8 @@ class ConstraintSeq2SeqTrainer(Seq2SeqTrainer):
         inputs = self._prepare_inputs(inputs)
 
         gen_kwargs = {
-            "max_length": self._max_length if self._max_length is not None else self.model.config.max_length,
-            "num_beams": self._num_beams if self._num_beams is not None else self.model.config.num_beams,
+            "max_length": self.model.config.max_length,
+            "num_beams": self.model.config.num_beams,
             "prefix_allowed_tokens_fn": prefix_allowed_tokens_fn if self.constraint_decoder else None,
         }
 
@@ -200,7 +199,7 @@ class ConstraintSeq2SeqTrainer(Seq2SeqTrainer):
             generated_tokens = self._pad_tensors_to_max_len(generated_tokens, gen_kwargs["max_length"])
 
         with torch.no_grad():
-            if self.use_amp:
+            if self.use_cuda_amp:
                 with autocast():
                     outputs = model(**inputs)
             else:

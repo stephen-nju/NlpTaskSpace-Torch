@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding:utf-8 -*-
-from datahelper.uie.seq2seq.constraint_decoder.spotasoc_constraint_decoder import (
+from task_compose.uie.seq2seq.constraint_decoder.spotasoc_constraint_decoder import (
     SpotAsocConstraintDecoder,
     SpotConstraintDecoder
 )

@@ -10,7 +10,7 @@ from datahelper.uie.extraction.constants import (
     null_span,
     text_start
 )
-from datahelper.uie.seq2seq.constraint_decoder.constraint_decoder import (
+from task_compose.uie.seq2seq.constraint_decoder.constraint_decoder import (
     ConstraintDecoder,
     find_bracket_position,
     generated_search_src_sequence

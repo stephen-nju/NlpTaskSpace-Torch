@@ -44,14 +44,15 @@ from datahelper.uie.extraction.record_schema import RecordSchema
 from datahelper.uie.extraction.extraction_metrics import get_extract_metrics
 from datahelper.uie.extraction.noiser.spot_asoc_noiser import SpotAsocNoiser
 from datahelper.uie.extraction.dataset_processer import PrefixGenerator
-from datahelper.uie.seq2seq.constrained_seq2seq import ConstraintSeq2SeqTrainingArguments, ConstraintSeq2SeqTrainer
-from datahelper.uie.seq2seq.data_collator import (
+
+from task_compose.uie.seq2seq.constrained_seq2seq import ConstraintSeq2SeqTrainingArguments, ConstraintSeq2SeqTrainer
+from task_compose.uie.seq2seq.data_collator import (
     DataCollatorForMetaSeq2Seq,
     DynamicSSIGenerator,
 )
-from datahelper.uie.seq2seq.features import RecordFeature
-from datahelper.uie.seq2seq.t5_bert_tokenizer import T5BertTokenizer
-from datahelper.uie.seq2seq.trainer_arguments import ModelArguments, DataTrainingArguments
+from task_compose.uie.seq2seq.features import RecordFeature
+from task_compose.uie.seq2seq.t5_bert_tokenizer import T5BertTokenizer
+from task_compose.uie.seq2seq.trainer_arguments import ModelArguments, DataTrainingArguments
 
 
 logger = logging.getLogger(__name__)

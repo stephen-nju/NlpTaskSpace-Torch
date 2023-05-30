@@ -1,0 +1,14 @@
+
+# 自定义query数据集
+name: zh_query
+path: data/query
+data_class: QueryAlioutput
+split:
+  train: query.train
+  val: query.dev
+  test: query.test
+language: zh
+mapper:
+  品牌: 品牌
+  品类: 品类
+  型号: 型号
