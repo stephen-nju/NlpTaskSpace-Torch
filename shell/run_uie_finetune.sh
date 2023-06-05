@@ -1,9 +1,9 @@
 # -*- coding:utf-8 -*-
 export CUDA_VISIBLE_DEVICES="0"
 
-export PROJECT_PATH="E:\\NlpProgram\\NlpTaskSpace-Torch"
+export PROJECT_PATH="/home/nlpbigdata/net_disk_project/zhubin/sousuo/query_correct/NlpTaskSpace-Torch"
 export batch_size="4"
-export model_name=E:\\Resources\\uie-char-small\\uie-char-small
+export model_name=/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/uie-char-small
 export task_name="meta"
 export decoding_format='spotasoc'
 export lr=1e-4
@@ -23,7 +23,7 @@ export max_source_length=256
 export spot_noise=0
 export asoc_noise=0
 export map_config=offset_map/closest_offset_en.yaml
-export data_folder=E:\\NlpProgram\\NlpTaskSpace-Torch\\data\\text2spotasoc\\entity_zh\\zh_weibo
+export data_folder=/home/nlpbigdata/net_disk_project/zhubin/sousuo/query_correct/NlpTaskSpace-Torch/data/zh_query
 export PYTHONPATH=${PROJECT_PATH}
 export output_dir=output
 
@@ -51,7 +51,7 @@ fi
 
 cd ${PROJECT_PATH}
 
-CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} /d/ProgramData/miniconda3/envs/uie/python task_compose/uie/task_uie_finetune.py \
+CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} python3 task_compose/uie/task_uie_finetune.py \
     --do_train --do_eval --do_predict ${constraint_decoding} ${fp16} \
     --use_fast_tokenizer=True \
     --overwrite_output_dir=True \
@@ -101,7 +101,7 @@ CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} /d/ProgramData/miniconda3/envs/uie/
     tail -n 200 ${stderr_file}
   fi
 
-  echo "Map Config" ${map_config}
+  # echo "Map Config" ${map_config}
   # python3 scripts/sel2record.py -p ${output_dir} -g ${data_folder} -v -d ${decoding_format} -c ${map_config}
   # python3 scripts/eval_extraction.py -p ${output_dir} -g ${data_folder} -w -m ${eval_match_mode:-"normal"}
 

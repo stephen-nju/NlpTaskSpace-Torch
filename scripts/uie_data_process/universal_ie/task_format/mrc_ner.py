@@ -97,7 +97,7 @@ class QueryAlioutput(Spannet):
 
                     dataset[index]["spans"]+=[{
                         'start':instance["start"],
-                        'end':instance['end'],
+                        'end':instance['end']-1,
                         'type':type_name
                         }]
                     counter.update(['span'])

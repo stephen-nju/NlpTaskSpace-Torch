@@ -212,7 +212,8 @@ def main():
         record_schema = RecordSchema.read_from_file(data_args.record_schema)
     else:
         record_schema = None
-
+        
+    logger.info(f"Record Schema：{record_schema}")
     if data_args.source_prefix is not None:
         if data_args.source_prefix == 'schema':
             prefix = PrefixGenerator.get_schema_prefix(schema=record_schema)
@@ -222,6 +223,7 @@ def main():
             prefix = data_args.source_prefix
     else:
         prefix = ""
+
     logger.info(f"Prefix: {prefix}")
     logger.info(f"Prefix Length: {len(tokenizer.tokenize(prefix))}")
 
@@ -280,6 +282,7 @@ def main():
             model_inputs['spot_asoc'] = examples['spot_asoc']
             # sample_prompt=True for Finetune and Pretrain
             model_inputs['sample_prompt'] = [True] * len(model_inputs['input_ids'])
+            
         return model_inputs
 
     def preprocess_function_eval(examples):
@@ -513,10 +516,12 @@ def main():
     return results
 
 
-def _mp_fn(index):
-    # For xla_spawn (TPUs)
-    main()
+# def _mp_fn(index):
+#     # For xla_spawn (TPUs)
+#     main()
 
 
 if __name__ == "__main__":
+    
+    __import__('pdb').set_trace()
     main()
