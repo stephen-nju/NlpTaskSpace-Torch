@@ -25,7 +25,6 @@ cd ${PROJECT_PATH}
 
 
 python3 task_compose/bert_qa/task_bert_qa_train.py \
---output_dir=/home/nlpbigdata/local_disk/output_dir \
 --accelerator=gpu \
 --devices=1 \
 --bert_config_dir=/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model \

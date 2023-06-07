@@ -2,9 +2,10 @@
 
 import argparse
 import json
+import re
 from tqdm import tqdm
 import logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 def has_duplicate(tmp_list):
     """ has duplicate ?
@@ -92,8 +93,6 @@ def get_chatgpt_result(response):
     gpt_data_dict = json.loads(response)
     res = []
     
-
-
     try:
         gpt_content = gpt_data_dict["choices"][0]["message"]["content"]
     except:
@@ -135,6 +134,55 @@ def get_chatgpt_result(response):
             elif isinstance(value, list):
                 for v in value:
                     if v != "":
+                        res.append({"type": type_name, "span": v, "start": None, "end": None})
+            elif isinstance(value, dict):
+                continue
+                # res.append({"type":type_name,"span":value,"start":None,"end":None})
+            else:
+                continue
+    return res
+
+
+def get_chatgpt_result_v3(response):
+    gpt_data_dict = json.loads(response)
+    res = []
+    try:
+        gpt_content = gpt_data_dict["choices"][0]["message"]["content"]
+    except:
+        logging.error(f"get gpt content error")
+        return res
+    try:
+        if isinstance(gpt_content,str):
+            gpt_content=gpt_content.strip()
+            if gpt_content=="无":
+                return res
+            # 用字符串解析dict
+            r={}
+            out=re.findall("\{(.*)\}",gpt_content)[0]
+            left,right=out.strip().split(":")
+            left=re.sub('[\'"]','', left)
+            right=re.sub('[\'"]','', right)
+            if left=="品牌":
+                r["品牌"]=right
+            
+    except:
+        logging.error(f"eval gpt content error")
+        return res
+    
+    if isinstance(r,dict):
+        for key, value in r.items():
+            if key == "品牌":
+                type_name = "HP"
+            else:
+                type_name = "Other"
+            if isinstance(value, str):
+                value=value.strip()
+                if value != "无":
+                    res.append({"type": type_name, "span": value, "start": None, "end": None})
+            elif isinstance(value, list):
+                for v in value:
+                    v=v.strip()
+                    if v != "无":
                         res.append({"type": type_name, "span": v, "start": None, "end": None})
             elif isinstance(value, dict):
                 continue
@@ -197,7 +245,8 @@ def report_metric(inputs):
                 num_entity += 1
 
         chatgpt = example["chatgpt_text"]
-        gpt_res=get_chatgpt_result(chatgpt)
+        # 定制化解析chatgpt的接口
+        gpt_res=get_chatgpt_result_v3(chatgpt)
         print(f"ground_truth={ground_truth} ***** gpt_res={gpt_res}")
         for ent in gpt_res:
 
