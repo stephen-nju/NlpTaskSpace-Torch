@@ -20,7 +20,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from torch.nn.modules import CrossEntropyLoss, BCEWithLogitsLoss
 from torch.utils.data.dataloader import DataLoader
-from datahelper.bert_qa.bert_qa_dataset import QADataset, convert_examples_to_features, QAInputExample, QAOutputResult
+from datahelper.bert_qa.bert_qa_dataset import QADataset, convert_examples_to_features, QuestionAnswerInputExample, QuestionAnswerOutputResult
 from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
 from metrics.bert_qa.qal_metric import compute_predictions_logits, squad_evaluate
 from transformers.models.bert.tokenization_bert import BertTokenizer
@@ -60,7 +60,7 @@ class BerQADataModule(pl.LightningDataModule):
                 is_impossible = False
                 if len(ths) == 0:
                     is_impossible = True
-                    example = QAInputExample(
+                    example = QuestionAnswerInputExample(
                         qas_id=index,
                         title=title,
                         question_text=question_text,
@@ -78,7 +78,7 @@ class BerQADataModule(pl.LightningDataModule):
                         start_index = []
                         for d in data:
                             start_index.append(d.start(0))
-                        example = QAInputExample(
+                        example = QuestionAnswerInputExample(
                             qas_id=index,
                             title=title,
                             question_text=question_text,
@@ -292,7 +292,7 @@ class BertForQA(pl.LightningModule):
         single_start_logits = torch.split(start_logits, 1, dim=0)
         single_end_logits = torch.split(end_logits, 1, dim=0)
         for unique_id, start, end in zip(unique_id, single_start_logits, single_end_logits):
-            res.append(QAOutputResult(
+            res.append(QuestionAnswerOutputResult(
                 unique_id=int(unique_id.detach().cpu()),
                 start_logits=start.squeeze().detach().cpu().tolist(),
                 end_logits=end.squeeze().detach().cpu().tolist(),

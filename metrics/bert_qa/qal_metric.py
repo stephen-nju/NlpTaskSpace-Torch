@@ -3,9 +3,11 @@ import json
 import math
 import re
 import string
-
+import torch
+from torchmetrics import Metric
 from transformers import BasicTokenizer
 from transformers.utils import logging
+from datahelper.bert_qa.bert_qa_dataset import QuestionAnswerOutputResult
 
 logger = logging.get_logger(__name__)
 
@@ -728,3 +730,56 @@ def compute_predictions_log_probs(
             writer.write(json.dumps(scores_diff_json, indent=4) + "\n")
 
     return all_predictions
+
+
+def question_answer_evaluation(
+        all_examples,
+        all_features,
+        all_results,
+        tokenizer,
+        n_best_size,
+        max_answer_length,
+        do_lower_case,
+        verbose_logging,
+        version_2_with_negative,
+        null_score_diff_threshold,
+):
+    all_predictions = compute_predictions_logits(
+        all_examples,
+        all_features,
+        all_results,
+        n_best_size,
+        max_answer_length,
+        do_lower_case,
+        verbose_logging,
+        version_2_with_negative,
+        null_score_diff_threshold,
+        tokenizer,
+    )
+    r = squad_evaluate(all_examples, all_predictions)
+
+    return r
+
+
+class QuestionAnswerMetric(Metric):
+    def __init__(self, evaluation):
+        super().__init__(compute_on_step=False)
+        self.evaluation = evaluation
+        self.add_state("start_logits", [])
+        self.add_state("end_logits", [])
+        self.add_state("unique_ids", [])
+
+    def update(self, unique_ids: torch.Tensor, start_logits: torch.Tensor, end_logits: torch.Tensor):
+        self.unique_ids += unique_ids
+        self.start_logits += start_logits
+        self.end_logits += end_logits
+
+    def compute(self):
+        all_results = []
+        for unique_id, start, end in zip(self.unique_ids, self.start_logits, self.end_logits):
+            all_results.append(
+                QuestionAnswerOutputResult(unique_id=int(unique_id.detach().cpu()),
+                                           start_logits=start.squeeze().detach().cpu().tolist(),
+                                           end_logits=end.squeeze().detach().cpu().tolist()))
+
+        self.evaluation(all_results=all_results)

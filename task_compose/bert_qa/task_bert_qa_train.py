@@ -9,10 +9,11 @@
 
 import argparse
 import json
-import re
-from abc import ABC
-from typing import Optional,Dict,Any
 import os
+from abc import ABC
+from functools import partial
+from typing import Optional, Dict, Any
+
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
@@ -23,10 +24,10 @@ from torch.utils.data.dataloader import DataLoader
 from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
 from transformers.models.bert.tokenization_bert import BertTokenizer
 
-from datahelper.bert_qa.bert_qa_dataset import QADataset, convert_examples_to_features, QAInputExample, QAOutputResult
+from datahelper.bert_qa.bert_qa_dataset import QADataset, convert_examples_to_features, QuestionAnswerInputExample
 from loss.dice_loss import DiceLoss
 from loss.focal_loss import FocalLoss
-from metrics.bert_qa.qal_metric import compute_predictions_logits, squad_evaluate
+from metrics.bert_qa.qal_metric import QuestionAnswerMetric, question_answer_evaluation
 from modeling.bert_qa.configure_bert_qa import BertForQAConfig
 from modeling.bert_qa.modeling_bert_qa import BertForQuestionAnswering
 
@@ -53,37 +54,37 @@ class BerQADataModule(pl.LightningDataModule, ABC):
     def read_train_data(file):
         # 数据格式发生变化时需要重构的函数
         with open(file, "r", encoding="utf-8") as g:
-            s=json.loads(g.read())
-            data=s["data"]
-            name=s["name"]
+            s = json.loads(g.read())
+            data = s["data"]
+            name = s["name"]
             for d in data:
-                context_text=d["context"]
+                context_text = d["context"]
                 for qa in d["qas"]:
-                    qa_id=qa["id"]
-                    question=qa["question"]
-                    answers=qa["answers"]
-                    is_impossible=False
-                    if len(answers)==0:
-                        is_impossible=True
-                        example = QAInputExample(qas_id=qa_id,
-                                             title=name,
-                                             question_text=question,
-                                             context_text=context_text,
-                                             answer_text=None,
-                                             raw_start_position=None,
-                                             is_impossible=True,
-                                             answers=[])
+                    qa_id = qa["id"]
+                    question = qa["question"]
+                    answers = qa["answers"]
+                    is_impossible = False
+                    if len(answers) == 0:
+                        is_impossible = True
+                        example = QuestionAnswerInputExample(qas_id=qa_id,
+                                                             title=name,
+                                                             question_text=question,
+                                                             context_text=context_text,
+                                                             answer_text=None,
+                                                             raw_start_position=None,
+                                                             is_impossible=True,
+                                                             answers=[])
                         yield example
                     if not is_impossible:
                         for ans in answers:
-                            example=QAInputExample(qas_id=qa_id,
-                                                 title=name,
-                                                 question_text=question,
-                                                 context_text=context_text,
-                                                 answer_text=ans["text"],
-                                                 raw_start_position=ans["answer_start"],
-                                                 is_impossible=False,
-                                                answers=answers)
+                            example = QuestionAnswerInputExample(qas_id=qa_id,
+                                                                 title=name,
+                                                                 question_text=question,
+                                                                 context_text=context_text,
+                                                                 answer_text=ans["text"],
+                                                                 raw_start_position=ans["answer_start"],
+                                                                 is_impossible=False,
+                                                                 answers=[ans])
                             yield example
         # with open(file, "r", encoding="utf-8") as g:
         #     index = 0
@@ -133,19 +134,19 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                                  type=int,
                                  default=64,
                                  help="The maximum number of tokens for the question. "
-                                 "Questions longer than this will be truncated to this length.")
+                                      "Questions longer than this will be truncated to this length.")
         # 用于处理
         data_parser.add_argument("--max_seq_length",
                                  type=int,
                                  default=384,
                                  help="The maximum total input sequence length after WordPiece tokenization. "
-                                 "Sequences longer than this will be truncated, "
-                                 "and sequences shorter than this will be padded.")
+                                      "Sequences longer than this will be truncated, "
+                                      "and sequences shorter than this will be padded.")
         data_parser.add_argument("--doc_stride",
                                  type=int,
                                  default=512,
                                  help="When splitting up a long document into chunks,"
-                                 " how much stride to take between chunks.")
+                                      " how much stride to take between chunks.")
 
         data_parser.add_argument(
             "--with_negative",
@@ -156,14 +157,14 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                                  default=20,
                                  type=int,
                                  help="The total number of n-best predictions to generate in the nbest_"
-                                 "predictions.json output file.")
+                                      "predictions.json output file.")
         data_parser.add_argument(
             "--max_answer_length",
             default=30,
             type=int,
             help="The maximum length of an answer that can be generated."
-            " This is needed because the start "
-            "and end predictions are not conditioned on one another.",
+                 " This is needed because the start "
+                 "and end predictions are not conditioned on one another.",
         )
         return data_parser
 
@@ -266,9 +267,11 @@ class BertForQA(pl.LightningModule, ABC):
                                                             total_steps=t_total,
                                                             anneal_strategy='linear')
         elif self.args.lr_scheduler == "linear":
-            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=t_total)
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps,
+                                                        num_training_steps=t_total)
         elif self.args.lr_scheduler == "polydecay":
-            scheduler = get_polynomial_decay_schedule_with_warmup(optimizer, warmup_steps, t_total, lr_end=self.args.lr / 4.0)
+            scheduler = get_polynomial_decay_schedule_with_warmup(optimizer, warmup_steps, t_total,
+                                                                  lr_end=self.args.lr / 4.0)
         else:
             raise ValueError("lr_scheduler does not exist.")
         return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
@@ -303,7 +306,8 @@ class BertForQA(pl.LightningModule, ABC):
             start_loss = F.binary_cross_entropy_with_logits(start_logits.view(-1),
                                                             start_labels.view(-1).float(),
                                                             reduction="none")
-            end_loss = F.binary_cross_entropy_with_logits(end_logits.view(-1), end_labels.view(-1).float(), reduction="none")
+            end_loss = F.binary_cross_entropy_with_logits(end_logits.view(-1), end_labels.view(-1).float(),
+                                                          reduction="none")
 
             start_loss = (start_loss * label_mask.view(-1)).sum() / label_mask.sum()
             end_loss = (end_loss * label_mask.view(-1)).sum() / label_mask.sum()
@@ -311,8 +315,10 @@ class BertForQA(pl.LightningModule, ABC):
             # TODO
             # Focal loss
             loss_fct = FocalLoss(gamma=self.args.focal_gamma, reduction="none")
-            start_loss = loss_fct(FocalLoss.convert_binary_pred_to_two_dimension(start_logits.view(-1)), start_labels.view(-1))
-            end_loss = loss_fct(FocalLoss.convert_binary_pred_to_two_dimension(end_logits.view(-1)), end_labels.view(-1))
+            start_loss = loss_fct(FocalLoss.convert_binary_pred_to_two_dimension(start_logits.view(-1)),
+                                  start_labels.view(-1))
+            end_loss = loss_fct(FocalLoss.convert_binary_pred_to_two_dimension(end_logits.view(-1)),
+                                end_labels.view(-1))
             start_loss = (start_loss * label_mask.view(-1)).sum() / label_mask.sum()
             end_loss = (end_loss * label_mask.view(-1)).sum() / label_mask.sum()
 
@@ -337,12 +343,30 @@ class BertForQA(pl.LightningModule, ABC):
         total_loss = (start_loss + end_loss) / 2
 
         return total_loss, start_loss, end_loss
+
+    def setup(self, stage):
+        self.configure_metrics()
+
+    def configure_metrics(self):
+        all_examples = self.trainer.datamodule.val_examples
+        all_features = self.trainer.datamodule.val_features
+        evaluation = partial(question_answer_evaluation,
+                             all_examples=all_examples,
+                             all_features=all_features,
+                             tokenizer=self.tokenizer,
+                             n_best_size=5,
+                             max_answer_length=10,
+                             do_lower_case=True,
+                             verbose_logging=True,
+                             version_2_with_negative=True,
+                             null_score_diff_threshold=0)
+        self.qa_metric = QuestionAnswerMetric(evaluation)
+
     @pl.utilities.rank_zero_only
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         save_path = os.path.join(self.args.output_dir, "saved_model")
         self.model.save_pretrained(save_path)
         self.tokenizer.save_pretrained(save_path)
-
 
     def training_step(self, batch, batch_idx):
         input_ids = batch["input_ids"]
@@ -352,66 +376,44 @@ class BertForQA(pl.LightningModule, ABC):
         end_labels = batch["end_position"]
         label_mask = batch["label_mask"]
         start_logits, end_logits = self(input_ids, attention_mask, token_type_ids)
-        total_loss, start_loss, end_loss = self.compute_loss(start_logits, end_logits, start_labels, end_labels, label_mask)
+        total_loss, start_loss, end_loss = self.compute_loss(start_logits, end_logits, start_labels, end_labels,
+                                                             label_mask)
 
         self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], prog_bar=True)
         self.log("train_start_loss", start_loss, prog_bar=True)
-        self.log("trian_end_loss", end_loss, prog_bar=True)
+        self.log("train_end_loss", end_loss, prog_bar=True)
         self.log("train_total_loss", total_loss, prog_bar=True)
 
         return total_loss
-    
 
-    @pl.utilities.rank_zero_only
     def validation_step(self, batch, batch_idx):
-        # 计算验证的loss
-        res = []
+        # 计算验证的loss,验证指标为loss
+        # res = []
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         token_type_ids = batch["token_type_ids"]
-        unique_id = batch["unique_id"]
+        unique_ids = batch["unique_id"]
         start_labels = batch["start_position"]
         end_labels = batch["end_position"]
         label_mask = batch["label_mask"]
         start_logits, end_logits = self(input_ids, attention_mask, token_type_ids)
-        total_loss, start_loss, end_loss = self.compute_loss(start_logits, end_logits, start_labels, end_labels, label_mask)
+        total_loss, start_loss, end_loss = self.compute_loss(start_logits, end_logits, start_labels, end_labels,
+                                                             label_mask)
         self.log("eval_total_loss", total_loss, prog_bar=True)
+        self.qa_metric.update(unique_ids, start_logits, end_logits)
+        # single_start_logits = torch.split(start_logits, 1, dim=0)
+        # single_end_logits = torch.split(end_logits, 1, dim=0)
 
-        single_start_logits = torch.split(start_logits, 1, dim=0)
-        single_end_logits = torch.split(end_logits, 1, dim=0)
-        for unique_id, start, end in zip(unique_id, single_start_logits, single_end_logits):
-            res.append(
-                QAOutputResult(unique_id=int(unique_id.detach().cpu()),
-                               start_logits=start.squeeze().detach().cpu().tolist(),
-                               end_logits=end.squeeze().detach().cpu().tolist(),
-                               cls_logits=None))
-        return res
-    
-    @pl.utilities.rank_zero_only
+    # def validation_step_end(self, batch_parts):
+    # 这玩意使用ddp还失效？
+    #     output_res=[]
+    #     for output in batch_parts:
+    #         output_res.append(output)
+    #     return output_res
+
     def validation_epoch_end(self, outputs) -> None:
-        # 使用多GPU进行验证的时候
-
-        self.all_gather
-        all_results = []
-        all_examples = self.trainer.datamodule.val_examples
-        all_features = self.trainer.datamodule.val_features
-        for output in outputs:
-            all_results.extend(output)
-        all_predict = compute_predictions_logits(
-            all_examples=all_examples,
-            all_features=all_features,
-            all_results=all_results,
-            tokenizer=self.tokenizer,
-            n_best_size=5,
-            max_answer_length=10,
-            do_lower_case=True,
-            verbose_logging=True,
-            version_2_with_negative=self.args.with_negative,
-            null_score_diff_threshold=0,
-        )
-
-        results = squad_evaluate(all_examples, all_predict)
-        print(results)
+        # 使用多GPU训练的时候需要验证
+        self.qa_metric.compute()
 
 
 if __name__ == '__main__':
@@ -432,7 +434,8 @@ if __name__ == '__main__':
     parser.add_argument("--weight_decay", default=0.01, type=float, help="Weight decay if we apply some.")
     parser.add_argument("--warmup_proportion", default=0.1, type=int, help="warmup steps used for scheduler.")
     parser.add_argument("--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer.")
-    parser.add_argument("--final_div_factor", type=float, default=1e4, help="final div factor of linear decay scheduler")
+    parser.add_argument("--final_div_factor", type=float, default=1e4,
+                        help="final div factor of linear decay scheduler")
     ## dice loss
     parser.add_argument("--dice_smooth", type=float, default=1e-4, help="smooth value of dice loss")
     parser.add_argument("--dice_ohem", type=float, default=0.0, help="ohem ratio of dice loss")

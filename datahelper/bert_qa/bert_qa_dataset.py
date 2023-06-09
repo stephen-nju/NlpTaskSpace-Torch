@@ -97,9 +97,7 @@ def whitespace_tokenize(text):
     return tokens
 
 
-
-
-class QAInputExample:
+class QuestionAnswerInputExample:
     """
     A single training/test example for the Squad dataset, as loaded from disk.
 
@@ -115,15 +113,15 @@ class QAInputExample:
     """
 
     def __init__(
-        self,
-        qas_id,
-        question_text,
-        context_text,
-        answer_text,
-        raw_start_position,
-        title,
-        answers=[],
-        is_impossible=False,
+            self,
+            qas_id,
+            question_text,
+            context_text,
+            answer_text,
+            raw_start_position,
+            title,
+            answers=[],
+            is_impossible=False,
     ):
         self.qas_id = qas_id
         self.question_text = question_text
@@ -132,7 +130,7 @@ class QAInputExample:
         self.title = title
         self.is_impossible = is_impossible
         self.answers = answers
-        self.raw_start_position=raw_start_position
+        self.raw_start_position = raw_start_position
 
         self.start_position, self.end_position = 0, 0
 
@@ -178,6 +176,7 @@ class QAInputExample:
             s += ", is_impossible: %r" % (self.is_impossible)
         return s
 
+
 # @dataclasses.dataclass
 # class QAInputExample:
 #     qas_id: Any
@@ -218,7 +217,7 @@ class QAInputExample:
 
 
 @dataclasses.dataclass
-class QAInputFeatures:
+class QuestionAnswerInputFeatures:
     # 模型预测的输入
     input_ids: list
     attention_mask: list
@@ -239,7 +238,7 @@ class QAInputFeatures:
 
 
 @dataclasses.dataclass
-class QAOutputResult:
+class QuestionAnswerOutputResult:
     unique_id: int
     start_logits: torch.Tensor
     end_logits: torch.Tensor
@@ -436,7 +435,7 @@ def convert_train_example_to_features(example, tokenizer, max_seq_length, doc_st
                 end_position = tok_end_position - doc_start + doc_offset
 
         features.append(
-            QAInputFeatures(
+            QuestionAnswerInputFeatures(
                 input_ids=span["input_ids"],
                 attention_mask=span["attention_mask"],
                 token_type_ids=span["token_type_ids"],

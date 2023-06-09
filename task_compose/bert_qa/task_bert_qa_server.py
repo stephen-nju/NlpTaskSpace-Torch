@@ -1,4 +1,3 @@
-
 # coding=utf-8
 # Copyright 2018 The Google AI Language Team Authors.
 #
@@ -17,6 +16,7 @@ from typing import List, Any, Optional
 import collections
 import logging
 import time
+
 log = logging.getLogger()
 
 import dataclasses
@@ -36,9 +36,6 @@ import re
 import string
 
 from transformers.models.bert import BasicTokenizer
-
-
-
 
 logger = logging.getLogger()
 
@@ -351,8 +348,8 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
             logger.info("Couldn't map end position")
         return orig_text
 
-    output_text = orig_text[orig_start_position : (orig_end_position + 1)]
-    return output_text,orig_start_position
+    output_text = orig_text[orig_start_position: (orig_end_position + 1)]
+    return output_text, orig_start_position
 
 
 def _get_best_indexes(logits, n_best_size):
@@ -389,20 +386,21 @@ def _compute_softmax(scores):
         probs.append(score / total_sum)
     return probs
 
+
 def compute_predictions_logits(
-    all_examples,
-    all_features,
-    all_results,
-    n_best_size,
-    max_answer_length,
-    do_lower_case,
-    output_prediction_file,
-    output_nbest_file,
-    output_null_log_odds_file,
-    verbose_logging,
-    version_2_with_negative,
-    null_score_diff_threshold,
-    tokenizer,
+        all_examples,
+        all_features,
+        all_results,
+        n_best_size,
+        max_answer_length,
+        do_lower_case,
+        output_prediction_file,
+        output_nbest_file,
+        output_null_log_odds_file,
+        verbose_logging,
+        version_2_with_negative,
+        null_score_diff_threshold,
+        tokenizer,
 ):
     """Write final predictions to the json file and log-odds of null if needed."""
     if output_prediction_file:
@@ -491,7 +489,7 @@ def compute_predictions_logits(
         prelim_predictions = sorted(prelim_predictions, key=lambda x: (x.start_logit + x.end_logit), reverse=True)
 
         _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-            "NbestPrediction", ["text", "start_logit", "end_logit","start_index","end_index"]
+            "NbestPrediction", ["text", "start_logit", "end_logit", "start_index", "end_index"]
         )
 
         seen_predictions = {}
@@ -501,14 +499,14 @@ def compute_predictions_logits(
                 break
             feature = features[pred.feature_index]
             if pred.start_index > 0:  # this is a non-null prediction
-                tok_tokens = feature.tokens[pred.start_index : (pred.end_index + 1)]
+                tok_tokens = feature.tokens[pred.start_index: (pred.end_index + 1)]
                 orig_doc_start = feature.token_to_orig_map[pred.start_index]
                 orig_doc_end = feature.token_to_orig_map[pred.end_index]
                 print(f"==doc start=={orig_doc_start}====doc end={orig_doc_end}")
                 print(f"====featrue={feature}")
                 print(f"====example={example}")
 
-                orig_tokens = example.doc_tokens[orig_doc_start : (orig_doc_end + 1)]
+                orig_tokens = example.doc_tokens[orig_doc_start: (orig_doc_end + 1)]
 
                 tok_text = tokenizer.convert_tokens_to_string(tok_tokens)
 
@@ -523,37 +521,41 @@ def compute_predictions_logits(
                 tok_text = " ".join(tok_text.split())
                 orig_text = " ".join(orig_tokens)
 
-
-                final_text,in_doc_start= get_final_text(tok_text, orig_text, do_lower_case, verbose_logging)
+                final_text, in_doc_start = get_final_text(tok_text, orig_text, do_lower_case, verbose_logging)
                 # 获取在原始中start和end_position
-                if orig_doc_start==0:
-                    s=in_doc_start
+                if orig_doc_start == 0:
+                    s = in_doc_start
                 else:
-                    offset=sum([len(d) for d in example.doc_tokens[:orig_doc_start]])+orig_doc_start
-                    s=in_doc_start+offset
+                    offset = sum([len(d) for d in example.doc_tokens[:orig_doc_start]]) + orig_doc_start
+                    s = in_doc_start + offset
 
                 if final_text in seen_predictions:
                     continue
                 seen_predictions[final_text] = True
             else:
                 final_text = ""
-                s=0
+                s = 0
                 seen_predictions[final_text] = True
-            nbest.append(_NbestPrediction(text=final_text, start_logit=pred.start_logit, end_logit=pred.end_logit,start_index=s,end_index=s+len(final_text)))
+            nbest.append(
+                _NbestPrediction(text=final_text, start_logit=pred.start_logit, end_logit=pred.end_logit, start_index=s,
+                                 end_index=s + len(final_text)))
         # if we didn't include the empty option in the n-best, include it
         if version_2_with_negative:
             if "" not in seen_predictions:
-                nbest.append(_NbestPrediction(text="", start_logit=null_start_logit, end_logit=null_end_logit,start_index=0,end_index=0))
+                nbest.append(
+                    _NbestPrediction(text="", start_logit=null_start_logit, end_logit=null_end_logit, start_index=0,
+                                     end_index=0))
 
             # In very rare edge cases we could only have single null prediction.
             # So we just create a nonce prediction in this case to avoid failure.
             if len(nbest) == 1:
-                nbest.insert(0, _NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0,start_index=0,end_index=0))
+                nbest.insert(0,
+                             _NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0, start_index=0, end_index=0))
 
         # In very rare edge cases we could have no valid predictions. So we
         # just create a nonce prediction in this case to avoid failure.
         if not nbest:
-            nbest.append(_NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0,start_index=0,end_index=0))
+            nbest.append(_NbestPrediction(text="empty", start_logit=0.0, end_logit=0.0, start_index=0, end_index=0))
 
         if len(nbest) < 1:
             raise ValueError("No valid predictions")
@@ -570,32 +572,34 @@ def compute_predictions_logits(
 
         probs = _compute_softmax(total_scores)
         nbest_json = []
-        entry_probablity={}
+        entry_probablity = {}
         for i, entry in enumerate(nbest):
-            entry_probablity[entry]=probs[i]
+            entry_probablity[entry] = probs[i]
             output = collections.OrderedDict()
             output["text"] = entry.text
             output["probability"] = probs[i]
             output["start_logit"] = entry.start_logit
             output["end_logit"] = entry.end_logit
-            output["start_index"]=entry.start_index
-            output["end_index"]=entry.end_index
+            output["start_index"] = entry.start_index
+            output["end_index"] = entry.end_index
             nbest_json.append(output)
 
         if len(nbest_json) < 1:
             raise ValueError("No valid predictions")
 
         if not version_2_with_negative:
-            all_predictions[example.qas_id] = [nbest_json[0]["text"],nbest_json[0]["probability"],nbest_json[0]["start_index"],nbest_json[0]["end_index"]]
+            all_predictions[example.qas_id] = [nbest_json[0]["text"], nbest_json[0]["probability"],
+                                               nbest_json[0]["start_index"], nbest_json[0]["end_index"]]
         else:
             # predict "" iff the null score - the score of best non-null > threshold
             score_diff = score_null - best_non_null_entry.start_logit - (best_non_null_entry.end_logit)
             scores_diff_json[example.qas_id] = score_diff
             if score_diff > null_score_diff_threshold:
-                all_predictions[example.qas_id] = ["",0,0,0,0]
+                all_predictions[example.qas_id] = ["", 0, 0, 0, 0]
             else:
                 print(f"====={best_non_null_entry}")
-                all_predictions[example.qas_id] = [best_non_null_entry.text,entry_probablity[best_non_null_entry],best_non_null_entry.start_index,best_non_null_entry.end_index]
+                all_predictions[example.qas_id] = [best_non_null_entry.text, entry_probablity[best_non_null_entry],
+                                                   best_non_null_entry.start_index, best_non_null_entry.end_index]
         all_nbest_json[example.qas_id] = nbest_json
 
     if output_prediction_file:
@@ -758,7 +762,8 @@ class QAOutputResult:
     cls_logits: torch.Tensor = None
 
 
-def convert_train_example_to_features(example, tokenizer, max_seq_length, doc_stride, max_query_length, padding_strategy,
+def convert_train_example_to_features(example, tokenizer, max_seq_length, doc_stride, max_query_length,
+                                      padding_strategy,
                                       is_training):
     features = []
     if is_training and not example.is_impossible:
@@ -779,12 +784,12 @@ def convert_train_example_to_features(example, tokenizer, max_seq_length, doc_st
     for (i, token) in enumerate(example.doc_tokens):
         orig_to_tok_index.append(len(all_doc_tokens))
         if tokenizer.__class__.__name__ in [
-                "RobertaTokenizer",
-                "LongformerTokenizer",
-                "BartTokenizer",
-                "RobertaTokenizerFast",
-                "LongformerTokenizerFast",
-                "BartTokenizerFast",
+            "RobertaTokenizer",
+            "LongformerTokenizer",
+            "BartTokenizer",
+            "RobertaTokenizerFast",
+            "LongformerTokenizerFast",
+            "BartTokenizerFast",
         ]:
             sub_tokens = tokenizer.tokenize(token, add_prefix_space=True)
         else:
@@ -800,7 +805,8 @@ def convert_train_example_to_features(example, tokenizer, max_seq_length, doc_st
         else:
             tok_end_position = len(all_doc_tokens) - 1
 
-        (tok_start_position, tok_end_position) = _improve_answer_span(all_doc_tokens, tok_start_position, tok_end_position,
+        (tok_start_position, tok_end_position) = _improve_answer_span(all_doc_tokens, tok_start_position,
+                                                                      tok_end_position,
                                                                       tokenizer, example.answer_text)
 
     spans = []
@@ -815,7 +821,7 @@ def convert_train_example_to_features(example, tokenizer, max_seq_length, doc_st
     tokenizer_type = type(tokenizer).__name__.replace("Tokenizer", "").lower()
     sequence_added_tokens = (tokenizer.model_max_length - tokenizer.max_len_single_sentence +
                              1 if tokenizer_type in MULTI_SEP_TOKENS_TOKENIZERS_SET else tokenizer.model_max_length -
-                             tokenizer.max_len_single_sentence)
+                                                                                         tokenizer.max_len_single_sentence)
     sequence_pair_added_tokens = tokenizer.model_max_length - tokenizer.max_len_sentences_pair
 
     span_doc_tokens = all_doc_tokens
@@ -958,15 +964,15 @@ def convert_train_example_to_features(example, tokenizer, max_seq_length, doc_st
 
 
 def convert_examples_to_features(
-    examples,
-    tokenizer,
-    max_seq_length,
-    doc_stride,
-    max_query_length,
-    is_training,
-    padding_strategy="max_length",
-    threads=3,
-    tqdm_enabled=True,
+        examples,
+        tokenizer,
+        max_seq_length,
+        doc_stride,
+        max_query_length,
+        is_training,
+        padding_strategy="max_length",
+        threads=3,
+        tqdm_enabled=True,
 ):
     threads = min(threads, cpu_count())
     with Pool(threads) as p:
@@ -1012,6 +1018,7 @@ sys.path.insert(0, '/opt/files/QueryCorrect/src/search_query_correct/detector_mo
 DetectorInfo = namedtuple("DetectorInfo", ["phrase", "start", "end", "score", "type"])
 # 模型, 配置文件, 资源文件
 model_base_dir = '/opt/files/mxmodels'
+
 
 # model_base_dir = '/home/nlpbigdata/net_disk_project/xufeifei/search_engine/model_x/query_phrase_extraction'
 
@@ -1059,7 +1066,7 @@ class BertForQuestionAnswering(BertPreTrainedModel):
         start_logits, end_logits = logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1).contiguous()
         end_logits = end_logits.squeeze(-1).contiguous()
-#         print(start_logits)
+        #         print(start_logits)
         return start_logits, end_logits
 
 
@@ -1067,9 +1074,13 @@ class BertForQA(pl.LightningModule):
 
     def __init__(self):
         super().__init__()
-        bert_config = BertForQAConfig.from_pretrained("/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
-        self.model = BertForQuestionAnswering.from_pretrained("/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model",config=bert_config)
-        self.tokenizer = BertTokenizer.from_pretrained("/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
+        bert_config = BertForQAConfig.from_pretrained(
+            "/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
+        self.model = BertForQuestionAnswering.from_pretrained(
+            "/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model",
+            config=bert_config)
+        self.tokenizer = BertTokenizer.from_pretrained(
+            "/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
 
     def forward(self, input_ids, attention_mask, token_type_ids):
         """forward inputs to BERT models."""
@@ -1081,52 +1092,55 @@ class Detector(object):
     def __init__(self):
         ## main ##
         log.info("start:品类识别模型初始化")
-        self.device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        bert_config = BertForQAConfig.from_pretrained("/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        bert_config = BertForQAConfig.from_pretrained(
+            "/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
 
-#         self.model=BertForQA.load_from_checkpoint("./bert_model.ckpt")
-#         self.model.to(self.device)
-#         self.model.eval()
-#         print(self.model.state_dict())
-#         torch.save(self.model.model.state_dict(), "./output/pytorch_model.bin")
-        
-#         self.model.model.save_pretrained("./output")
-        self.model=BertForQuestionAnswering(bert_config).from_pretrained("./output",config=bert_config).to(self.device)
-#         print(self.model.state_dict())
-        self.tokenizer= BertTokenizer.from_pretrained("/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
+        #         self.model=BertForQA.load_from_checkpoint("./bert_model.ckpt")
+        #         self.model.to(self.device)
+        #         self.model.eval()
+        #         print(self.model.state_dict())
+        #         torch.save(self.model.model.state_dict(), "./output/pytorch_model.bin")
+
+        #         self.model.model.save_pretrained("./output")
+        self.model = BertForQuestionAnswering(bert_config).from_pretrained("./output", config=bert_config).to(
+            self.device)
+        #         print(self.model.state_dict())
+        self.tokenizer = BertTokenizer.from_pretrained(
+            "/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
         log.info("end:品类识别模型初始化完成")
-    
+
     # 推理调用的主方法入口，支持字符串、JSON、二进制参数类型
     def detect(self, query) -> List[DetectorInfo]:
         for i in range(1):
             predict_examples = []
             predict_examples.append(
-                    QAInputExample(
-                        qas_id=int(time.time()),
-                        title=None,
-                question_text = "标题中产品提及有哪些",
-                        context_text=query,
-                        answer_text=None,
-                        raw_start_position=None,
-                        answers=[]
-                    ))
+                QAInputExample(
+                    qas_id=int(time.time()),
+                    title=None,
+                    question_text="标题中产品提及有哪些",
+                    context_text=query,
+                    answer_text=None,
+                    raw_start_position=None,
+                    answers=[]
+                ))
 
-            predict_features= convert_examples_to_features(examples=predict_examples,
-                                                     tokenizer=self.tokenizer,
-                                                     max_query_length=64,
-                                                     max_seq_length=128,
-                                                     doc_stride=128,
-                                                     is_training=False
-                                                     )
+            predict_features = convert_examples_to_features(examples=predict_examples,
+                                                            tokenizer=self.tokenizer,
+                                                            max_query_length=64,
+                                                            max_seq_length=128,
+                                                            doc_stride=128,
+                                                            is_training=False
+                                                            )
 
             log.info("start:开始query品类词抽取")
 
             predict_results, all_results = [], []
-                    # 批预测
-            input_ids=[]
-            attention_mask=[]
-            token_type_ids=[]
-            unique_id=[]
+            # 批预测
+            input_ids = []
+            attention_mask = []
+            token_type_ids = []
+            unique_id = []
 
             for p_features in predict_features:
                 input_ids.append(p_features.input_ids)
@@ -1134,43 +1148,42 @@ class Detector(object):
                 token_type_ids.append(p_features.token_type_ids)
                 unique_id.append(p_features.unique_id)
 
-            a=time.time()
+            a = time.time()
             start_logits, end_logits = self.model.forward(
-                                            input_ids=torch.tensor(input_ids,dtype=torch.long).to(self.device),
-                                             token_type_ids= torch.tensor(token_type_ids,dtype=torch.long).to(self.device),                                   
-                                            attention_mask=torch.tensor(attention_mask,dtype=torch.long).to(self.device)
-                                                         )
-        
-        
-            print(f"===model==={time.time()-a}")
+                input_ids=torch.tensor(input_ids, dtype=torch.long).to(self.device),
+                token_type_ids=torch.tensor(token_type_ids, dtype=torch.long).to(self.device),
+                attention_mask=torch.tensor(attention_mask, dtype=torch.long).to(self.device)
+            )
+
+            print(f"===model==={time.time() - a}")
             single_start_logits = torch.split(start_logits, 1, dim=0)
             single_end_logits = torch.split(end_logits, 1, dim=0)
             for unique_id, start, end in zip(unique_id, single_start_logits, single_end_logits):
                 predict_results.append(
                     QAOutputResult(unique_id=int(unique_id),
-                                    start_logits=start.squeeze().detach().cpu().tolist(),
-                                    end_logits=end.squeeze().detach().cpu().tolist(),
-                                    cls_logits=None))
+                                   start_logits=start.squeeze().detach().cpu().tolist(),
+                                   end_logits=end.squeeze().detach().cpu().tolist(),
+                                   cls_logits=None))
 
             predict_results = compute_predictions_logits(all_examples=predict_examples,
-                                             all_features=predict_features,
-                                             all_results=predict_results,
-                                             tokenizer=self.tokenizer,
-                                             n_best_size=5,
-                                             max_answer_length=10,
-                                             do_lower_case=True,
-                                             output_prediction_file=None,
-                                            output_nbest_file="a.txt",
-                                            output_null_log_odds_file=None,
-                                             verbose_logging=True,
-                                             version_2_with_negative=True,
-                                             null_score_diff_threshold=0,
-                                             )
+                                                         all_features=predict_features,
+                                                         all_results=predict_results,
+                                                         tokenizer=self.tokenizer,
+                                                         n_best_size=5,
+                                                         max_answer_length=10,
+                                                         do_lower_case=True,
+                                                         output_prediction_file=None,
+                                                         output_nbest_file="a.txt",
+                                                         output_null_log_odds_file=None,
+                                                         verbose_logging=True,
+                                                         version_2_with_negative=True,
+                                                         null_score_diff_threshold=0,
+                                                         )
             query_phrase_res = []
-            for _,p_r in predict_results.items():
+            for _, p_r in predict_results.items():
                 # TODO start end 需要减去query的长度
-                if p_r[0]!="empty" and p_r[0]!="":
-                    query_phrase_res.append(DetectorInfo(p_r[0],p_r[2]-12,p_r[3]-11,p_r[1],"category"))
+                if p_r[0] != "empty" and p_r[0] != "":
+                    query_phrase_res.append(DetectorInfo(p_r[0], p_r[2] - 12, p_r[3] - 11, p_r[1], "category"))
             log.info("end:结束query品类词抽取")
             print(f"===={query_phrase_res}")
             # query_phrase_res = []
@@ -1191,23 +1204,21 @@ class Detector(object):
             #                  (passage, phrase, start, end, phrase_score))
             #         query_phrase_res.append(DetectorInfo(phrase, start, end + 1, phrase_score, "category"))
 
-#         torch.save(self.model.model.state_dict(), "./output/pytorch_model.bin")
+        #         torch.save(self.model.model.state_dict(), "./output/pytorch_model.bin")
 
         return predict_results
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training")
-    parser.add_argument("--s", type=str,help="bert config dir")
-
+    parser.add_argument("--s", type=str, help="bert config dir")
 
     args = parser.parse_args()
 
-    
-    query=args.s
-    
+    query = args.s
+
     detector = Detector()
-    s=time.time()
+    s = time.time()
     res = detector.detect(query)
-    print(f"====spantine={time.time()-s}")
+    print(f"====spantine={time.time() - s}")
     print("res: ", res)
