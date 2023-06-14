@@ -428,21 +428,20 @@ def compute_predictions_logits(
                         length = end_index - start_index + 1
                         if length > max_answer_length:
                             continue
-                    
-                    elif isinstance(example, QuestionAnswerInputExampleFast) and isinstance(feature, QuestionAnswerInputFeaturesFast):
-                        
+
+                    elif isinstance(example, QuestionAnswerInputExampleFast) and isinstance(
+                            feature, QuestionAnswerInputFeaturesFast):
+
                         offset_mapping = feature.offset_mapping
 
-                    # Optional `token_is_max_context`, if provided we will remove answers that do not have the maximum context
-                        token_is_max_context = feature.get("token_is_max_context",None)
+                        # Optional `token_is_max_context`, if provided we will remove answers that do not have the maximum context 
+                        token_is_max_context = feature.token_is_max_context if (
+                            feature.token_is_max_context and isinstance(feature.token_is_max_context, dict)) else None
                         # 超出范围的答案
-                        if (
-                            start_index >= len(offset_mapping)
-                            or end_index >= len(offset_mapping)
-                            or offset_mapping[start_index] is None
-                            or len(offset_mapping[start_index]) < 2
-                            or offset_mapping[end_index] is None
-                            or len(offset_mapping[end_index]) < 2):
+
+                        if (start_index >= len(offset_mapping) or end_index >= len(offset_mapping) or
+                                offset_mapping[start_index] is None or len(offset_mapping[start_index]) < 2 or
+                                offset_mapping[end_index] is None or len(offset_mapping[end_index]) < 2):
                             continue
                         #答案长度限制
                         if end_index < start_index or end_index - start_index + 1 > max_answer_length:
@@ -450,7 +449,7 @@ def compute_predictions_logits(
                         #最大上下文
                         if token_is_max_context is not None and not token_is_max_context.get(str(start_index), False):
                             continue
-                        
+
                     else:
                         raise ValueError(
                             f"""example argument needs to be of type of (QuestionAnswerInputExample,QuestionAnswerInputExampleFast) and 
@@ -486,7 +485,7 @@ def compute_predictions_logits(
             feature = features[pred.feature_index]
             if pred.start_index > 0:  # this is a non-null prediction
                 if isinstance(example, QuestionAnswerInputExampleFast) and isinstance(feature, QuestionAnswerInputFeaturesFast):
-                    offset_mapping =feature.offset_mapping
+                    offset_mapping = feature.offset_mapping
                     offsets = offset_mapping[pred.start_index][0], offset_mapping[pred.end_index][1]
                     context = example.context_text
                     final_text = context[offsets[0], offsets[1]]
