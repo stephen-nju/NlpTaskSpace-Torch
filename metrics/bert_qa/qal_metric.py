@@ -3,11 +3,12 @@ import json
 import math
 import re
 import string
+from numpy import isinf
 import torch
 from torchmetrics import Metric
 from transformers import BasicTokenizer
 from transformers.utils import logging
-from datahelper.bert_qa.bert_qa_dataset import QuestionAnswerOutputResult
+from datahelper.bert_qa.bert_qa_dataset import QuestionAnswerInputExample, QuestionAnswerInputExampleFast, QuestionAnswerInputFeatures, QuestionAnswerInputFeaturesFast, QuestionAnswerOutputResult
 
 logger = logging.get_logger(__name__)
 
@@ -99,22 +100,18 @@ def apply_no_ans_threshold(scores, na_probs, qid_to_has_ans, na_prob_thresh):
 def make_eval_dict(exact_scores, f1_scores, qid_list=None):
     if not qid_list:
         total = len(exact_scores)
-        return collections.OrderedDict(
-            [
-                ("exact", 100.0 * sum(exact_scores.values()) / total),
-                ("f1", 100.0 * sum(f1_scores.values()) / total),
-                ("total", total),
-            ]
-        )
+        return collections.OrderedDict([
+            ("exact", 100.0 * sum(exact_scores.values()) / total),
+            ("f1", 100.0 * sum(f1_scores.values()) / total),
+            ("total", total),
+        ])
     else:
         total = len(qid_list)
-        return collections.OrderedDict(
-            [
-                ("exact", 100.0 * sum(exact_scores[k] for k in qid_list) / total),
-                ("f1", 100.0 * sum(f1_scores[k] for k in qid_list) / total),
-                ("total", total),
-            ]
-        )
+        return collections.OrderedDict([
+            ("exact", 100.0 * sum(exact_scores[k] for k in qid_list) / total),
+            ("f1", 100.0 * sum(f1_scores[k] for k in qid_list) / total),
+            ("total", total),
+        ])
 
 
 def merge_eval(main_eval, new_eval, prefix):
@@ -210,9 +207,7 @@ def squad_evaluate(examples, preds, no_answer_probs=None, no_answer_probability_
 
     exact, f1 = get_raw_scores(examples, preds)
 
-    exact_threshold = apply_no_ans_threshold(
-        exact, no_answer_probs, qas_id_to_has_answer, no_answer_probability_threshold
-    )
+    exact_threshold = apply_no_ans_threshold(exact, no_answer_probs, qas_id_to_has_answer, no_answer_probability_threshold)
     f1_threshold = apply_no_ans_threshold(f1, no_answer_probs, qas_id_to_has_answer, no_answer_probability_threshold)
 
     evaluation = make_eval_dict(exact_threshold, f1_threshold)
@@ -321,7 +316,7 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
             logger.info("Couldn't map end position")
         return orig_text
 
-    output_text = orig_text[orig_start_position: (orig_end_position + 1)]
+    output_text = orig_text[orig_start_position:(orig_end_position + 1)]
     return output_text
 
 
@@ -361,16 +356,16 @@ def _compute_softmax(scores):
 
 
 def compute_predictions_logits(
-        all_examples,
-        all_features,
-        all_results,
-        n_best_size,
-        max_answer_length,
-        do_lower_case,
-        verbose_logging,
-        version_2_with_negative,
-        null_score_diff_threshold,
-        tokenizer,
+    all_examples,
+    all_features,
+    all_results,
+    n_best_size,
+    max_answer_length,
+    do_lower_case,
+    verbose_logging,
+    version_2_with_negative,
+    null_score_diff_threshold,
+    tokenizer,
 ):
     example_index_to_features = collections.defaultdict(list)
     for feature in all_features:
@@ -381,14 +376,16 @@ def compute_predictions_logits(
         unique_id_to_result[result.unique_id] = result
 
     _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_logit", "end_logit"]
-    )
+        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_logit", "end_logit"])
 
     all_predictions = collections.OrderedDict()
     all_nbest_json = collections.OrderedDict()
     scores_diff_json = collections.OrderedDict()
 
     for (example_index, example) in enumerate(all_examples):
+        if isinstance(example, QuestionAnswerInputExampleFast):
+            example_index = example.example_index
+
         features = example_index_to_features[example_index]
 
         prelim_predictions = []
@@ -414,21 +411,51 @@ def compute_predictions_logits(
                     # We could hypothetically create invalid predictions, e.g., predict
                     # that the start of the span is in the question. We throw out all
                     # invalid predictions.
-                    if start_index >= len(feature.tokens):
-                        continue
-                    if end_index >= len(feature.tokens):
-                        continue
-                    if start_index not in feature.token_to_orig_map:
-                        continue
-                    if end_index not in feature.token_to_orig_map:
-                        continue
-                    if not feature.token_is_max_context.get(start_index, False):
-                        continue
-                    if end_index < start_index:
-                        continue
-                    length = end_index - start_index + 1
-                    if length > max_answer_length:
-                        continue
+
+                    if isinstance(example, QuestionAnswerInputExample) and isinstance(feature, QuestionAnswerInputFeatures):
+                        if start_index >= len(feature.tokens):
+                            continue
+                        if end_index >= len(feature.tokens):
+                            continue
+                        if start_index not in feature.token_to_orig_map:
+                            continue
+                        if end_index not in feature.token_to_orig_map:
+                            continue
+                        if not feature.token_is_max_context.get(start_index, False):
+                            continue
+                        if end_index < start_index:
+                            continue
+                        length = end_index - start_index + 1
+                        if length > max_answer_length:
+                            continue
+                    
+                    elif isinstance(example, QuestionAnswerInputExampleFast) and isinstance(feature, QuestionAnswerInputFeaturesFast):
+                        
+                        offset_mapping = feature.offset_mapping
+
+                    # Optional `token_is_max_context`, if provided we will remove answers that do not have the maximum context
+                        token_is_max_context = feature.get("token_is_max_context",None)
+                        # 超出范围的答案
+                        if (
+                            start_index >= len(offset_mapping)
+                            or end_index >= len(offset_mapping)
+                            or offset_mapping[start_index] is None
+                            or len(offset_mapping[start_index]) < 2
+                            or offset_mapping[end_index] is None
+                            or len(offset_mapping[end_index]) < 2):
+                            continue
+                        #答案长度限制
+                        if end_index < start_index or end_index - start_index + 1 > max_answer_length:
+                            continue
+                        #最大上下文
+                        if token_is_max_context is not None and not token_is_max_context.get(str(start_index), False):
+                            continue
+                        
+                    else:
+                        raise ValueError(
+                            f"""example argument needs to be of type of (QuestionAnswerInputExample,QuestionAnswerInputExampleFast) and 
+                            feature argument needs to be of type of (QuestionAnswerInputFeatures,QuestionAnswerInputFeaturesFast)"""
+                        )
                     prelim_predictions.append(
                         _PrelimPrediction(
                             feature_index=feature_index,
@@ -436,8 +463,7 @@ def compute_predictions_logits(
                             end_index=end_index,
                             start_logit=result.start_logits[start_index],
                             end_logit=result.end_logits[end_index],
-                        )
-                    )
+                        ))
         if version_2_with_negative:
             prelim_predictions.append(
                 _PrelimPrediction(
@@ -446,13 +472,11 @@ def compute_predictions_logits(
                     end_index=0,
                     start_logit=null_start_logit,
                     end_logit=null_end_logit,
-                )
-            )
+                ))
         prelim_predictions = sorted(prelim_predictions, key=lambda x: (x.start_logit + x.end_logit), reverse=True)
 
         _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-            "NbestPrediction", ["text", "start_logit", "end_logit"]
-        )
+            "NbestPrediction", ["text", "start_logit", "end_logit"])
 
         seen_predictions = {}
         nbest = []
@@ -461,25 +485,37 @@ def compute_predictions_logits(
                 break
             feature = features[pred.feature_index]
             if pred.start_index > 0:  # this is a non-null prediction
-                tok_tokens = feature.tokens[pred.start_index: (pred.end_index + 1)]
-                orig_doc_start = feature.token_to_orig_map[pred.start_index]
-                orig_doc_end = feature.token_to_orig_map[pred.end_index]
-                orig_tokens = example.doc_tokens[orig_doc_start: (orig_doc_end + 1)]
+                if isinstance(example, QuestionAnswerInputExampleFast) and isinstance(feature, QuestionAnswerInputFeaturesFast):
+                    offset_mapping =feature.offset_mapping
+                    offsets = offset_mapping[pred.start_index][0], offset_mapping[pred.end_index][1]
+                    context = example.context_text
+                    final_text = context[offsets[0], offsets[1]]
+                elif isinstance(example, QuestionAnswerInputExample) and isinstance(feature, QuestionAnswerInputFeatures):
+                    tok_tokens = feature.tokens[pred.start_index:(pred.end_index + 1)]
+                    orig_doc_start = feature.token_to_orig_map[pred.start_index]
+                    orig_doc_end = feature.token_to_orig_map[pred.end_index]
+                    orig_tokens = example.doc_tokens[orig_doc_start:(orig_doc_end + 1)]
 
-                tok_text = tokenizer.convert_tokens_to_string(tok_tokens)
+                    tok_text = tokenizer.convert_tokens_to_string(tok_tokens)
 
-                # tok_text = " ".join(tok_tokens)
-                #
-                # # De-tokenize WordPieces that have been split off.
-                # tok_text = tok_text.replace(" ##", "")
-                # tok_text = tok_text.replace("##", "")
+                    # tok_text = " ".join(tok_tokens)
+                    #
+                    # # De-tokenize WordPieces that have been split off.
+                    # tok_text = tok_text.replace(" ##", "")
+                    # tok_text = tok_text.replace("##", "")
 
-                # Clean whitespace
-                tok_text = tok_text.strip()
-                tok_text = " ".join(tok_text.split())
-                orig_text = " ".join(orig_tokens)
+                    # Clean whitespace
+                    tok_text = tok_text.strip()
+                    tok_text = " ".join(tok_text.split())
+                    orig_text = " ".join(orig_tokens)
 
-                final_text = get_final_text(tok_text, orig_text, do_lower_case, verbose_logging)
+                    final_text = get_final_text(tok_text, orig_text, do_lower_case, verbose_logging)
+                else:
+                    raise ValueError(
+                        f"""example argument needs to be of type of (QuestionAnswerInputExample,QuestionAnswerInputExampleFast) and 
+                        feature argument needs to be of type of (QuestionAnswerInputFeatures,QuestionAnswerInputFeaturesFast)"""
+                    )
+
                 if final_text in seen_predictions:
                     continue
 
@@ -541,20 +577,21 @@ def compute_predictions_logits(
 
     return all_predictions
 
+
 def compute_predictions_log_probs(
-        all_examples,
-        all_features,
-        all_results,
-        n_best_size,
-        max_answer_length,
-        output_prediction_file,
-        output_nbest_file,
-        output_null_log_odds_file,
-        start_n_top,
-        end_n_top,
-        version_2_with_negative,
-        tokenizer,
-        verbose_logging,
+    all_examples,
+    all_features,
+    all_results,
+    n_best_size,
+    max_answer_length,
+    output_prediction_file,
+    output_nbest_file,
+    output_null_log_odds_file,
+    start_n_top,
+    end_n_top,
+    version_2_with_negative,
+    tokenizer,
+    verbose_logging,
 ):
     """
     XLNet write prediction logic (more complex than Bert's). Write final predictions to the json file and log-odds of
@@ -563,12 +600,10 @@ def compute_predictions_log_probs(
     Requires utils_squad_evaluate.py
     """
     _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_log_prob", "end_log_prob"]
-    )
+        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_log_prob", "end_log_prob"])
 
     _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-        "NbestPrediction", ["text", "start_log_prob", "end_log_prob"]
-    )
+        "NbestPrediction", ["text", "start_log_prob", "end_log_prob"])
 
     logger.info(f"Writing predictions to: {output_prediction_file}")
 
@@ -632,12 +667,9 @@ def compute_predictions_log_probs(
                             end_index=end_index,
                             start_log_prob=start_log_prob,
                             end_log_prob=end_log_prob,
-                        )
-                    )
+                        ))
 
-        prelim_predictions = sorted(
-            prelim_predictions, key=lambda x: (x.start_log_prob + x.end_log_prob), reverse=True
-        )
+        prelim_predictions = sorted(prelim_predictions, key=lambda x: (x.start_log_prob + x.end_log_prob), reverse=True)
 
         seen_predictions = {}
         nbest = []
@@ -657,10 +689,10 @@ def compute_predictions_log_probs(
             # final_text = paragraph_text[start_orig_pos: end_orig_pos + 1].strip()
 
             # Previously used Bert untokenizer
-            tok_tokens = feature.tokens[pred.start_index: (pred.end_index + 1)]
+            tok_tokens = feature.tokens[pred.start_index:(pred.end_index + 1)]
             orig_doc_start = feature.token_to_orig_map[pred.start_index]
             orig_doc_end = feature.token_to_orig_map[pred.end_index]
-            orig_tokens = example.doc_tokens[orig_doc_start: (orig_doc_end + 1)]
+            orig_tokens = example.doc_tokens[orig_doc_start:(orig_doc_end + 1)]
             tok_text = tokenizer.convert_tokens_to_string(tok_tokens)
 
             # Clean whitespace
@@ -680,9 +712,7 @@ def compute_predictions_log_probs(
 
             seen_predictions[final_text] = True
 
-            nbest.append(
-                _NbestPrediction(text=final_text, start_log_prob=pred.start_log_prob, end_log_prob=pred.end_log_prob)
-            )
+            nbest.append(_NbestPrediction(text=final_text, start_log_prob=pred.start_log_prob, end_log_prob=pred.end_log_prob))
 
         # In very rare edge cases we could have no valid predictions. So we
         # just create a nonce prediction in this case to avoid failure.
@@ -732,16 +762,16 @@ def compute_predictions_log_probs(
 
 
 def question_answer_evaluation(
-        all_examples,
-        all_features,
-        all_results,
-        tokenizer,
-        n_best_size,
-        max_answer_length,
-        do_lower_case,
-        verbose_logging,
-        version_2_with_negative,
-        null_score_diff_threshold,
+    all_examples,
+    all_features,
+    all_results,
+    tokenizer,
+    n_best_size,
+    max_answer_length,
+    do_lower_case,
+    verbose_logging,
+    version_2_with_negative,
+    null_score_diff_threshold,
 ):
     all_predictions = compute_predictions_logits(
         all_examples,
@@ -761,6 +791,7 @@ def question_answer_evaluation(
 
 
 class QuestionAnswerMetric(Metric):
+
     def __init__(self, evaluation):
         super().__init__(compute_on_step=False)
         self.evaluation = evaluation
