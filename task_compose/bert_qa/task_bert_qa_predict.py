@@ -20,7 +20,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from torch.nn.modules import CrossEntropyLoss, BCEWithLogitsLoss
 from torch.utils.data.dataloader import DataLoader
-from datahelper.bert_qa.bert_qa_dataset import QADataset, convert_examples_to_features, QuestionAnswerInputExample, QuestionAnswerOutputResult
+from datahelper.bert_qa.bert_qa_dataset import QuestionAnswerDataset, convert_examples_to_features, QuestionAnswerInputExample, QuestionAnswerOutputResult
 from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
 from metrics.bert_qa.qal_metric import compute_predictions_logits, squad_evaluate
 from transformers.models.bert.tokenization_bert import BertTokenizer
@@ -130,7 +130,7 @@ class BerQADataModule(pl.LightningDataModule):
                                                              )
 
     def predict_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-        return DataLoader(dataset=QADataset(features=self.val_features),
+        return DataLoader(dataset=QuestionAnswerDataset(features=self.val_features),
                           batch_size=self.batch_size,
                           num_workers=4,
                           pin_memory=True,

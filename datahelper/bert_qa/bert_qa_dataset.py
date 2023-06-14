@@ -177,6 +177,43 @@ class QuestionAnswerInputExample:
         return s
 
 
+class QuestionAnswerInputExampleFast:
+    def __init__(
+            self,
+            example_index,
+            question_text,
+            context_text,
+            title,
+            answers,
+            qas_id,
+            is_impossible=False,
+    ):
+        self.example_index = example_index
+        self.question_text = question_text
+        self.context_text = context_text
+        self.title = title
+        self.qas_id=qas_id
+        self.is_impossible = is_impossible
+        self.answers = answers
+
+        self.start_position, self.end_position = 0, 0
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        s = ""
+        s += "qas_id: %s" % (str(self.example_index))
+        s += ", question_text: %s" % (self.question_text)
+        if self.start_position:
+            s += ", start_position: %d" % (self.start_position)
+        if self.start_position:
+            s += ", end_position: %d" % (self.end_position)
+        if self.start_position:
+            s += ", is_impossible: %r" % (self.is_impossible)
+        return s
+
+
 # @dataclasses.dataclass
 # class QAInputExample:
 #     qas_id: Any
@@ -235,6 +272,70 @@ class QuestionAnswerInputFeatures:
     is_impossible: bool
     qas_id: int
     encoding: BatchEncoding = None
+
+
+class QuestionAnswerInputFeaturesFast:
+    """
+    采用 transformers 中的SquadFeatures
+      Args:
+        input_ids: Indices of input sequence tokens in the vocabulary.
+        attention_mask: Mask to avoid performing attention on padding token indices.
+        token_type_ids: Segment token indices to indicate first and second portions of the inputs.
+        cls_index: the index of the CLS token.
+        p_mask: Mask identifying tokens that can be answers vs. tokens that cannot.
+            Mask with 1 for tokens than cannot be in the answer and 0 for token that can be in an answer
+        example_index: the index of the example
+        unique_id: The unique Feature identifier
+        paragraph_len: The length of the context
+        token_is_max_context:
+            List of booleans identifying which tokens have their maximum context in this feature object. If a token
+            does not have their maximum context in this feature object, it means that another feature object has more
+            information related to that token and should be prioritized over this feature for that token.
+        tokens: list of tokens corresponding to the input ids
+        token_to_orig_map: mapping between the tokens and the original text, needed in order to identify the answer.
+        start_position: start of the answer token index
+        end_position: end of the answer token index
+        encoding: optionally store the BatchEncoding with the fast-tokenizer alignment methods.
+    """
+
+    def __init__(
+            self,
+            input_ids,
+            attention_mask,
+            token_type_ids,
+            cls_index,
+            p_mask,
+            example_index,
+            unique_id,  # feature的唯一id
+            paragraph_len,
+            token_is_max_context,
+            tokens,
+            offset_mapping,
+            start_position,
+            end_position,
+            is_impossible,
+            qas_id: str = None,
+            encoding: BatchEncoding = None,
+    ):
+        self.input_ids = input_ids
+        self.attention_mask = attention_mask
+        self.token_type_ids = token_type_ids
+        self.cls_index = cls_index
+        self.p_mask = p_mask
+
+        self.example_index = example_index
+        self.unique_id = unique_id
+        self.paragraph_len = paragraph_len
+        self.token_is_max_context = token_is_max_context
+        self.tokens = tokens
+        self.offset_mapping = offset_mapping
+
+        self.start_position = start_position
+        self.end_position = end_position
+        self.is_impossible = is_impossible
+        self.qas_id = qas_id
+
+        self.encoding = encoding
 
 
 @dataclasses.dataclass
@@ -506,7 +607,7 @@ def convert_examples_to_features(
     return features
 
 
-class QADataset(Dataset):
+class QuestionAnswerDataset(Dataset):
     def __init__(self, features
                  ):
         self.features = features

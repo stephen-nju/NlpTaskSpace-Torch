@@ -541,7 +541,6 @@ def compute_predictions_logits(
 
     return all_predictions
 
-
 def compute_predictions_log_probs(
         all_examples,
         all_features,
