@@ -1,14 +1,14 @@
 
 # 自定义query数据集
 name: zh_query
-path: data/query
+path: E:/项目资料/query理解/data/train_data/
 data_class: QueryAlioutput
 split:
-  train: query.train
-  val: query.dev
-  test: query.test
+  train: standart_train_data/train_data_damo_ner_v2.txt
+  val: standart_test_data_part/standart_test_data_part1_0_2000.human_labled.txt
+  test: standart_test_data_part/standart_test_data_part1_0_2000.human_labled.txt
 language: zh
 mapper:
   品牌: 品牌
   品类: 品类
-  型号: 型号
+  系列型号: 系列型号

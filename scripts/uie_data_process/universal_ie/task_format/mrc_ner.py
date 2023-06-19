@@ -77,9 +77,14 @@ class QueryAlioutput(Spannet):
                 assert len(ss)==2
                 query=ss[0]
                 output=json.loads(ss[1])
-                instances=output["output"]
+                if isinstance(output,list):
+                    instances=output
+                elif isinstance(output,dict):
+                    instances=output["output"]
+                else:
+                    continue
                 counter.update(['label sentence'])
-
+                
                 dataset[index]['tokens'] = list(query)
                 if 'spans' not in dataset[index]:
                     dataset[index]['spans'] = list()
@@ -90,7 +95,11 @@ class QueryAlioutput(Spannet):
                     elif type_name=="HC":
                         type_name="品类"
                     elif type_name=="XH":
-                        type_name="型号"
+                        
+                        type_name="系列型号"
+                    elif  type_name=="XL":
+
+                        type_name="系列型号"
                     else:
                         #其它类型直接跳过
                         continue
