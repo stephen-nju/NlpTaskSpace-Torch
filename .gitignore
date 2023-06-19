@@ -1,7 +1,6 @@
 scripts/evaluation_of_information_extraction/chatgpt_api_request.py
-data/
-scripts/evaluation_of_information_extraction/
-
+scripts/evaluation_of_information_extraction/data_format_convert/*.txt
+scripts/evaluation_of_information_extraction/*.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
