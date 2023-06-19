@@ -1,4 +1,7 @@
-./scripts/evaluation_of_information_extraction/chatgpt_api_request.py
+scripts/evaluation_of_information_extraction/chatgpt_api_request.py
+data/
+scripts/evaluation_of_information_extraction/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
