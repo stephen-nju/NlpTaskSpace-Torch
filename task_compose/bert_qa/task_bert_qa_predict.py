@@ -48,48 +48,83 @@ class BerQADataModule(pl.LightningDataModule):
     def read_train_data(file):
         # 数据格式发生变化时需要重构的函数
         with open(file, "r", encoding="utf-8") as g:
-            index = 0
-            # 构建qa对的时候，设置唯一的id,qas_id
-            for line in g:
-                lines = line.strip().split("\t")
-                assert len(lines) == 2
-                title = None
-                question_text = "请找出下列文本中的主题词"
-                context_text = lines[0]
-                ths = json.loads(lines[1])
-                is_impossible = False
-                if len(ths) == 0:
-                    is_impossible = True
-                    example = QuestionAnswerInputExample(
-                        qas_id=index,
-                        title=title,
-                        question_text=question_text,
-                        context_text=context_text,
-                        answer_text=None,
-                        raw_start_position=None,
-                        is_impossible=True,
-                        answers=[]
-                    )
-                    index += 1
-                    yield example
-                if not is_impossible:
-                    for tx in ths:
-                        data = re.finditer(tx, context_text)
-                        start_index = []
-                        for d in data:
-                            start_index.append(d.start(0))
-                        example = QuestionAnswerInputExample(
-                            qas_id=index,
-                            title=title,
-                            question_text=question_text,
-                            context_text=context_text,
-                            answer_text=tx,
-                            raw_start_position=start_index[0],
-                            is_impossible=False,
-                            answers=[]
-                        )
-                        index += 1
+            s = json.loads(g.read())
+            data = s["data"]
+            name = s["name"]
+            for d in data:
+                context_text = d["context"]
+                for qa in d["qas"]:
+                    qa_id = qa["id"]
+                    question = qa["question"]
+                    answers = qa["answers"]
+                    is_impossible = False
+                    if len(answers) == 0:
+                        is_impossible = True
+                        example = QuestionAnswerInputExample(qas_id=qa_id,
+                                                             title=name,
+                                                             question_text=question,
+                                                             context_text=context_text,
+                                                             answer_text=None,
+                                                             raw_start_position=None,
+                                                             is_impossible=True,
+                                                             answers=[])
                         yield example
+                    if not is_impossible:
+                        example = QuestionAnswerInputExample(qas_id=qa_id,
+                                                                title=name,
+                                                                question_text=question,
+                                                                context_text=context_text,
+                                                                answer_text=answers[0]["text"],
+                                                                raw_start_position=answers[0]["answer_start"],
+                                                                is_impossible=False,
+                                                                answers=answers)
+                        yield example
+    # @staticmethod
+    # def read_train_data(file):
+    #     # 数据格式发生变化时需要重构的函数
+    #     with open(file, "r", encoding="utf-8") as g:
+    #         index = 0
+    #         # 构建qa对的时候，设置唯一的id,qas_id
+    #         for line in g:
+    #             lines = line.strip().split("\t")
+    #             assert len(lines) == 2
+    #             title = None
+    #             question_text = "请找出下列文本中的主题词"
+    #             context_text = lines[0]
+    #             ths = json.loads(lines[1])
+    #             is_impossible = False
+    #             if len(ths) == 0:
+    #                 is_impossible = True
+    #                 example = QuestionAnswerInputExample(
+    #                     qas_id=index,
+    #                     title=title,
+    #                     question_text=question_text,
+    #                     context_text=context_text,
+    #                     answer_text=None,
+    #                     raw_start_position=None,
+    #                     is_impossible=True,
+    #                     answers=[]
+    #                 )
+    #                 index += 1
+    #                 yield example
+    #             if not is_impossible:
+    #                 for tx in ths:
+    #                     data = re.finditer(tx, context_text)
+    #                     start_index = []
+    #                     for d in data:
+    #                         start_index.append(d.start(0))
+    #                     example = QuestionAnswerInputExample(
+    #                         qas_id=index,
+    #                         title=title,
+    #                         question_text=question_text,
+    #                         context_text=context_text,
+    #                         answer_text=tx,
+    #                         raw_start_position=start_index[0],
+    #                         is_impossible=False,
+    #                         answers=[]
+    #                     )
+    #                     index += 1
+    #                     yield example
 
     @staticmethod
     def add_data_specific_args(parent_parse):
@@ -318,6 +353,9 @@ class BertForQA(pl.LightningModule):
                                                  version_2_with_negative=self.args.with_negative,
                                                  null_score_diff_threshold=0,
                                                  )
+        with open("./all_predict.txt","w",encoding="utf-8") as g:
+
+            json.dump(all_predict,g,ensure_ascii=False,indent=2)
         results = squad_evaluate(all_examples, all_predict)
         print(results)
 

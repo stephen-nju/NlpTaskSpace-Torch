@@ -488,7 +488,7 @@ def compute_predictions_logits(
                     offset_mapping = feature.offset_mapping
                     offsets = offset_mapping[pred.start_index][0], offset_mapping[pred.end_index][1]
                     context = example.context_text
-                    final_text = context[offsets[0], offsets[1]]
+                    final_text = context[offsets[0]:offsets[1]]
                 elif isinstance(example, QuestionAnswerInputExample) and isinstance(feature, QuestionAnswerInputFeatures):
                     tok_tokens = feature.tokens[pred.start_index:(pred.end_index + 1)]
                     orig_doc_start = feature.token_to_orig_map[pred.start_index]

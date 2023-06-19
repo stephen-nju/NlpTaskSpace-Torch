@@ -19,17 +19,23 @@ import json
 import os
 from abc import ABC
 from functools import partial
-from typing import Optional, Dict, Any, List
+from multiprocessing.dummy import Pool
+from os import cpu_count
+from typing import Optional, Dict, Any, List, Union
+
 import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from pytorch_lightning.strategies import DDPStrategy
 from torch.nn.modules import CrossEntropyLoss, BCEWithLogitsLoss
 from torch.utils.data.dataloader import DataLoader
-from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
 from tqdm import tqdm
+from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
+from transformers import BertTokenizerFast
+
 from datahelper.bert_qa.bert_qa_dataset import QuestionAnswerDataset, QuestionAnswerInputExampleFast, \
     QuestionAnswerInputFeaturesFast
 from loss.dice_loss import DiceLoss
@@ -37,44 +43,47 @@ from loss.focal_loss import FocalLoss
 from metrics.bert_qa.qal_metric import QuestionAnswerMetric, question_answer_evaluation
 from modeling.bert_qa.configure_bert_qa import BertForQAConfig
 from modeling.bert_qa.modeling_bert_qa import BertForQuestionAnswering
-from pytorch_lightning.strategies import DDPStrategy
-from transformers import BertTokenizerFast
 
-global global_unique_id = 1000000000
+global global_unique_id= 1000000000
+
 # 设置随机种子
 seed_everything(42)
+
 """
 文本处理中的两个问题：1.长文本（需要指定return_overflowing_tokens和stride，用于窗口滑动整个文档），
 2：文本对齐（需要指定return_offsets_mapping，用于后处理找到答案位置）
 """
 
-def convert_examples_to_features_fast(examples: List[QuestionAnswerInputExampleFast], tokenizer, max_length,
-                                      doc_stride, is_training):
+
+def convert_example_to_features_fast(
+        examples: Union[List[QuestionAnswerInputExampleFast], QuestionAnswerInputExampleFast],
+        tokenizer,
+        max_length,
+        doc_stride, is_training):
     # 批处理
     features = []
     questions = [example.question_text for example in examples]
     contexts = [example.context_text for example in examples]
-    answers_list:List[List[Dict]]= [example.answers for example in examples]
+    answers_list: List[List[Dict]] = [example.answers for example in examples]
     example_indexs = [example.example_index for example in examples]
-    qas_ids=[example.qas_id for example in examples]
+    qas_ids = [example.qas_id for example in examples]
 
-    encode_inputs = tokenizer(
-        questions,
-        contexts,
-        max_length=max_length,
-        truncation="only_second",  # 指定改参数，将只在第二部分输入上进行截断，即文章部分进行截断
-        return_overflowing_tokens=True,  # 指定该参数，会根据最大长度与步长将恩本划分为多个段落
-        return_offsets_mapping=True,  # 指定改参数，返回切分后的token在文章中的位置
-        return_token_type_ids=True,
-        return_attention_mask=True,
-        stride=doc_stride,  # 定义重叠token的数目
-        padding="max_length"
-    )
+    encode_inputs = tokenizer(questions,
+                              contexts,
+                              max_length=max_length,
+                              truncation="only_second",  # 指定改参数，将只在第二部分输入上进行截断，即文章部分进行截断
+                              return_overflowing_tokens=True,  # 指定该参数，会根据最大长度与步长将恩本划分为多个段落
+                              return_offsets_mapping=True,  # 指定改参数，返回切分后的token在文章中的位置
+                              return_token_type_ids=True,
+                              return_attention_mask=True,
+                              stride=doc_stride,  # 定义重叠token的数目
+                              padding="max_length"
+                              )
 
     # sample_mapping中存储着新的片段对应的原始example的id，例如[0, 0, 0, 1, 1, 2]，表示前三个片段都是第1个example
     # 根据sample_mapping中的映射信息，可以有效的定位答案
     sample_mapping = encode_inputs.pop("overflow_to_sample_mapping")
-    for i, _ in enumerate(tqdm(sample_mapping,total=len(sample_mapping))):
+    for i, _ in enumerate(sample_mapping):
         input_ids = encode_inputs["input_ids"][i]
         attention_mask = encode_inputs["attention_mask"][i]
         token_type_ids = encode_inputs["token_type_ids"][i]
@@ -99,12 +108,12 @@ def convert_examples_to_features_fast(examples: List[QuestionAnswerInputExampleF
         start_position, end_position = cls_index, cls_index
         is_impossible = False
         answers = answers_list[sample_mapping[i]]  # 根据sample_mapping的结果，获取答案的内容
-        if len(answers)==0:
-            is_impossible=True
+        if len(answers) == 0:
+            is_impossible = True
         else:
             start_char = answers[0]["answer_start"]
             end_char = start_char + len(answers[0]["text"])
-            
+
             if not (offsets[token_start_index][0] <= start_char and offsets[token_end_index][1] >= end_char):
                 # 该feature不包含答案
                 print("The answer is not in this feature.")
@@ -121,8 +130,8 @@ def convert_examples_to_features_fast(examples: List[QuestionAnswerInputExampleF
         example_index = example_indexs[sample_mapping[i]]
         # keep the cls_token unmasked (some models use it to indicate unanswerable questions)
         offset_mapping = [
-            (o if sequence_ids[k] == 1 else None)
-            for k, o in enumerate(encode_inputs["offset_mapping"][i])
+                (o if sequence_ids[k] == 1 else None)
+                for k, o in enumerate(encode_inputs["offset_mapping"][i])
         ]
 
         # p_mask: mask with 1 for token than cannot be in the answer (0 for token which can be in an answer)
@@ -134,28 +143,27 @@ def convert_examples_to_features_fast(examples: List[QuestionAnswerInputExampleF
             for cls_index in cls_indices:
                 p_mask[cls_index] = 0
 
-        qas_id=qas_ids[i]
+        qas_id = qas_ids[i]
         global global_unique_id
-        
-        features.append(QuestionAnswerInputFeaturesFast(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            cls_index=cls_index,
-            p_mask=p_mask,
-            example_index=example_index,
-            start_position=start_position,
-            end_position=end_position,
-            is_impossible=is_impossible,
-            offset_mapping=offset_mapping,
-            unique_id=global_unique_id,
-            paragraph_len=0,
-            token_is_max_context=0,
-            tokens=[],
-            qas_id=qas_id,
-            encoding=encode_inputs[i]
-        ))
-        global_unique_id+=1
+
+        features.append(QuestionAnswerInputFeaturesFast(input_ids=input_ids,
+                                                        attention_mask=attention_mask,
+                                                        token_type_ids=token_type_ids,
+                                                        cls_index=cls_index,
+                                                        p_mask=p_mask,
+                                                        example_index=example_index,
+                                                        start_position=start_position,
+                                                        end_position=end_position,
+                                                        is_impossible=is_impossible,
+                                                        offset_mapping=offset_mapping,
+                                                        unique_id=global_unique_id,
+                                                        paragraph_len=0,
+                                                        token_is_max_context=0,
+                                                        tokens=[],
+                                                        qas_id=qas_id,
+                                                        encoding=encode_inputs[i]
+                                                        ))
+        global_unique_id += 1
 
     return features
 
@@ -198,9 +206,9 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                                       " how much stride to take between chunks.")
 
         data_parser.add_argument(
-            "--with_negative",
-            action="store_true",
-            help="If true, the examples contain some that do not have an answer.",
+                "--with_negative",
+                action="store_true",
+                help="If true, the examples contain some that do not have an answer.",
         )
         data_parser.add_argument("--n_best_size",
                                  default=20,
@@ -208,12 +216,12 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                                  help="The total number of n-best predictions to generate in the nbest_"
                                       "predictions.json output file.")
         data_parser.add_argument(
-            "--max_answer_length",
-            default=30,
-            type=int,
-            help="The maximum length of an answer that can be generated."
-                 " This is needed because the start "
-                 "and end predictions are not conditioned on one another.",
+                "--max_answer_length",
+                default=30,
+                type=int,
+                help="The maximum length of an answer that can be generated."
+                     " This is needed because the start "
+                     "and end predictions are not conditioned on one another.",
         )
         return data_parser
 
@@ -224,6 +232,7 @@ class BerQADataModule(pl.LightningDataModule, ABC):
             s = json.loads(g.read())
             data = s["data"]
             name = s["name"]
+            example_index=0
             for d in data:
                 context_text = d["context"]
                 for qa in d["qas"]:
@@ -233,54 +242,91 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                     is_impossible = False
                     if len(answers) == 0:
                         is_impossible = True
-                        example = QuestionAnswerInputExampleFast(example_index=qa_id,
+                        example = QuestionAnswerInputExampleFast(example_index=example_index,
                                                                  title=name,
                                                                  question_text=question,
                                                                  context_text=context_text,
                                                                  is_impossible=True,
                                                                  qas_id=qa_id,
                                                                  answers=[])
+                        example_index+=1
                         yield example
                     if not is_impossible:
-                        example = QuestionAnswerInputExampleFast(example_index=qa_id,
+                        example = QuestionAnswerInputExampleFast(example_index=example_index,
                                                                  title=name,
                                                                  question_text=question,
                                                                  context_text=context_text,
                                                                  qas_id=qa_id,
                                                                  is_impossible=False,
                                                                  answers=answers)
+                        example_index+=1
                         yield example
+
+    @staticmethod
+    def convert_examples_to_features_pool(examples,
+                                          tokenizer,
+                                          max_length,
+                                          doc_stride,
+                                          is_training,
+                                          threads=3,
+                                          tqdm_enabled=True,
+                                          ):
+        threads = min(threads, cpu_count())
+        with Pool(threads) as p:
+            annotate_ = partial(convert_example_to_features_fast,
+                                tokenizer=tokenizer,
+                                max_length=max_length,
+                                doc_stride=doc_stride,
+                                is_training=is_training,
+                                )
+            features = list(
+                    tqdm(
+                            p.imap(annotate_, examples, chunksize=32),
+                            total=len(examples),
+                            desc="convert examples to features",
+                            disable=not tqdm_enabled,
+                    )
+            )
+            new_feature = []
+
+            for f in features:
+                new_feature.extend(f)
+            features = new_feature
+
+            return features
 
     def setup(self, stage: Optional[str] = None):
         if stage == "fit" or stage is None:
             train_file = self.train_data
-            self.train_feature = convert_examples_to_features_fast(examples=list(self.read_train_data(train_file)),
-                                                                   tokenizer=self.tokenizer,
-                                                                   max_length=self.args.max_seq_length,
-                                                                   doc_stride=self.args.doc_stride,
-                                                                   is_training=True)
+            examples = list(self.read_train_data(train_file))
+
+            self.train_feature = self.convert_examples_to_features_pool(examples=examples,
+                                                                        tokenizer=self.tokenizer,
+                                                                        max_length=self.args.max_seq_length,
+                                                                        doc_stride=self.args.doc_stride,
+                                                                        is_training=True)
+
+
             self.val_examples = list(self.read_train_data(train_file))
-            self.val_features = convert_examples_to_features_fast(examples=self.val_examples,
-                                                                  tokenizer=self.tokenizer,
-                                                                  max_length=self.args.max_seq_length,
-                                                                  doc_stride=self.args.doc_stride,
-                                                                  is_training=False)
+            self.val_features = self.convert_examples_to_features_pool(examples=self.val_examples,
+                                                                       tokenizer=self.tokenizer,
+                                                                       max_length=self.args.max_seq_length,
+                                                                       doc_stride=self.args.doc_stride,
+                                                                       is_training=False)
 
     def train_dataloader(self):
-        return DataLoader(
-            dataset=QuestionAnswerDataset(features=self.train_feature),
-            batch_size=self.batch_size,
-            num_workers=4,
-            pin_memory=True,
-        )
+        return DataLoader(dataset=QuestionAnswerDataset(features=self.train_feature),
+                          batch_size=self.batch_size,
+                          num_workers=4,
+                          pin_memory=True,
+                          )
 
     def val_dataloader(self):
-        return DataLoader(
-            dataset=QuestionAnswerDataset(features=self.val_features),
-            batch_size=self.batch_size,
-            num_workers=4,
-            pin_memory=True,
-        )
+        return DataLoader(dataset=QuestionAnswerDataset(features=self.val_features),
+                          batch_size=self.batch_size,
+                          num_workers=4,
+                          pin_memory=True,
+                          )
 
 
 class BertForQA(pl.LightningModule, ABC):
@@ -310,22 +356,24 @@ class BertForQA(pl.LightningModule, ABC):
         """Prepare optimizer and learning rate scheduler """
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
-            {
-                "params": [p for n, p in self.model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.args.weight_decay,
-            },
-            {
-                "params": [p for n, p in self.model.named_parameters() if any(nd in n for nd in no_decay)],
-                "weight_decay": 0.0,
-            },
+                {
+                        "params"      : [p for n, p in self.model.named_parameters() if
+                                         not any(nd in n for nd in no_decay)],
+                        "weight_decay": self.args.weight_decay,
+                },
+                {
+                        "params"      : [p for n, p in self.model.named_parameters() if
+                                         any(nd in n for nd in no_decay)],
+                        "weight_decay": 0.0,
+                },
         ]
 
         if self.optimizer == "adamw":
             optimizer = AdamW(
-                optimizer_grouped_parameters,
-                betas=(0.9, 0.999),  # according to RoBERTa paper
-                lr=self.args.lr,
-                eps=self.args.adam_epsilon,
+                    optimizer_grouped_parameters,
+                    betas=(0.9, 0.999),  # according to RoBERTa paper
+                    lr=self.args.lr,
+                    eps=self.args.adam_epsilon,
             )
         else:
             # revisiting few-sample BERT Fine-tuning https://arxiv.org/pdf/2006.05987.pdf

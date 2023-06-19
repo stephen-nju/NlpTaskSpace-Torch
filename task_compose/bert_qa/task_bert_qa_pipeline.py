@@ -61,13 +61,9 @@ if __name__ == "__main__":
     bert_config = BertForQAConfig.from_pretrained(
         "/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model")
 
-    #         self.model=BertForQA.load_from_checkpoint("./bert_model.ckpt")
     #         self.model.to(self.device)
     #         self.model.eval()
-    #         print(self.model.state_dict())
-    #         torch.save(self.model.model.state_dict(), "./output/pytorch_model.bin")
 
-    #         self.model.model.save_pretrained("./output")
     model = BertForQuestionAnswering(bert_config).from_pretrained("./output", config=bert_config).to(device)
     #         print(self.model.state_dict())
     tokenizer = BertTokenizerFast.from_pretrained(
