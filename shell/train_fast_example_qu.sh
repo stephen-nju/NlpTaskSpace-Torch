@@ -26,5 +26,8 @@ python3 task_compose/bert_qa/task_bert_qa_train_fast.py \
 --dev_data=/home/nlpbigdata/net_disk_project/zhubin/sousuo/train_data/query_understand_data/humanlabel_eval_v1.txt \
 --batch_size=8 \
 --max_epochs=2 \
+--max_seq_length=128 \
+--n_best_size=5 \
+--max_answer_length=10 \
 --num_sanity_val_steps=0 \
 --loss_type=bce

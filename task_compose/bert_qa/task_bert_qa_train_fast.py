@@ -195,7 +195,7 @@ class BerQADataModule(pl.LightningDataModule, ABC):
         # 用于处理
         data_parser.add_argument("--max_seq_length",
                                  type=int,
-                                 default=384,
+                                 default=128,
                                  help="The maximum total input sequence length after WordPiece tokenization. "
                                       "Sequences longer than this will be truncated, "
                                       "and sequences shorter than this will be padded.")
@@ -211,13 +211,13 @@ class BerQADataModule(pl.LightningDataModule, ABC):
                 help="If true, the examples contain some that do not have an answer.",
         )
         data_parser.add_argument("--n_best_size",
-                                 default=20,
+                                 default=5,
                                  type=int,
                                  help="The total number of n-best predictions to generate in the nbest_"
                                       "predictions.json output file.")
         data_parser.add_argument(
                 "--max_answer_length",
-                default=30,
+                default=10,
                 type=int,
                 help="The maximum length of an answer that can be generated."
                      " This is needed because the start "
