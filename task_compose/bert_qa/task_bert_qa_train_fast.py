@@ -21,7 +21,7 @@ from abc import ABC
 from functools import partial
 from multiprocessing.dummy import Pool
 from os import cpu_count
-from typing import Optional, Dict, Any, List, Union
+from typing import Dict, Any, List, Union
 
 import numpy as np
 import pytorch_lightning as pl
@@ -44,8 +44,6 @@ from metrics.bert_qa.qal_metric import QuestionAnswerMetric, question_answer_eva
 from modeling.bert_qa.configure_bert_qa import BertForQAConfig
 from modeling.bert_qa.modeling_bert_qa import BertForQuestionAnswering
 
-global global_unique_id= 1000000000
-
 # 设置随机种子
 seed_everything(42)
 
@@ -55,11 +53,49 @@ seed_everything(42)
 """
 
 
+def read_train_data(file):
+    # 数据格式发生变化时需要重构的函数
+    with open(file, "r", encoding="utf-8") as g:
+        s = json.loads(g.read())
+        data = s["data"]
+        name = s["name"]
+        example_index = 0
+        for d in data:
+            context_text = d["context"]
+            for qa in d["qas"]:
+                qa_id = qa["id"]
+                question = qa["question"]
+                answers = qa["answers"]
+                is_impossible = False
+                if len(answers) == 0:
+                    is_impossible = True
+                    example = QuestionAnswerInputExampleFast(example_index=example_index,
+                                                             title=name,
+                                                             question_text=question,
+                                                             context_text=context_text,
+                                                             is_impossible=True,
+                                                             qas_id=qa_id,
+                                                             answers=[])
+                    example_index += 1
+                    yield example
+                if not is_impossible:
+                    example = QuestionAnswerInputExampleFast(example_index=example_index,
+                                                             title=name,
+                                                             question_text=question,
+                                                             context_text=context_text,
+                                                             qas_id=qa_id,
+                                                             is_impossible=False,
+                                                             answers=answers)
+                    example_index += 1
+                    yield example
+
+
 def convert_example_to_features_fast(
         examples: Union[List[QuestionAnswerInputExampleFast], QuestionAnswerInputExampleFast],
         tokenizer,
         max_length,
-        doc_stride, is_training):
+        doc_stride,
+        is_training):
     # 批处理
     features = []
     questions = [example.question_text for example in examples]
@@ -144,7 +180,6 @@ def convert_example_to_features_fast(
                 p_mask[cls_index] = 0
 
         qas_id = qas_ids[i]
-        global global_unique_id
 
         features.append(QuestionAnswerInputFeaturesFast(input_ids=input_ids,
                                                         attention_mask=attention_mask,
@@ -156,174 +191,83 @@ def convert_example_to_features_fast(
                                                         end_position=end_position,
                                                         is_impossible=is_impossible,
                                                         offset_mapping=offset_mapping,
-                                                        unique_id=global_unique_id,
+                                                        unique_id=None,
                                                         paragraph_len=0,
                                                         token_is_max_context=0,
                                                         tokens=[],
                                                         qas_id=qas_id,
                                                         encoding=encode_inputs[i]
                                                         ))
-        global_unique_id += 1
 
     return features
 
 
-class BerQADataModule(pl.LightningDataModule, ABC):
+def convert_examples_to_features_pool(examples,
+                                      tokenizer,
+                                      max_length,
+                                      doc_stride,
+                                      is_training,
+                                      threads=3,
+                                      tqdm_enabled=True,
+                                      ):
+    threads = min(threads, cpu_count())
+    with Pool(threads) as p:
+        annotate_ = partial(convert_example_to_features_fast,
+                            tokenizer=tokenizer,
+                            max_length=max_length,
+                            doc_stride=doc_stride,
+                            is_training=is_training,
+                            )
+        features = list(
+                tqdm(
+                        p.imap(annotate_, examples, chunksize=32),
+                        total=len(examples),
+                        desc="convert examples to features",
+                        disable=not tqdm_enabled,
+                )
+        )
+        new_features = []
+        unique_id = 1000000000
+        for example_features in tqdm(
+                features, total=len(features), desc="add example index and unique id", disable=not tqdm_enabled
+        ):
+            if not example_features:
+                continue
+            for example_feature in example_features:
+                example_feature.unique_id = unique_id
+                new_features.append(example_feature)
+                unique_id += 1
 
-    def __init__(self, args):
+        features = new_features
+
+        return features
+
+
+class BertQADataModule(pl.LightningDataModule, ABC):
+
+    def __init__(self,
+                 args,
+                 train_features,
+                 val_examples,
+                 val_features
+                 ):
         assert isinstance(args, argparse.Namespace)
         self.args = args
-        self.tokenizer = BertTokenizerFast.from_pretrained(args.bert_config_dir)
-        self.train_data = args.train_data
-        self.test_data = args.test_data
-        self.dev_data = args.dev_data
-        self.batch_size = args.batch_size
-        self.train_feature = []
-        self.val_examples = []
-        self.val_features = []
-        super(BerQADataModule, self).__init__()
-
-    @staticmethod
-    def add_data_specific_args(parent_parse):
-        # 添加数据处理时的参数
-        data_parser = argparse.ArgumentParser(parents=[parent_parse], add_help=False)
-        data_parser.add_argument("--max_query_length",
-                                 type=int,
-                                 default=64,
-                                 help="The maximum number of tokens for the question. "
-                                      "Questions longer than this will be truncated to this length.")
-        # 用于处理
-        data_parser.add_argument("--max_seq_length",
-                                 type=int,
-                                 default=128,
-                                 help="The maximum total input sequence length after WordPiece tokenization. "
-                                      "Sequences longer than this will be truncated, "
-                                      "and sequences shorter than this will be padded.")
-        data_parser.add_argument("--doc_stride",
-                                 type=int,
-                                 default=512,
-                                 help="When splitting up a long document into chunks,"
-                                      " how much stride to take between chunks.")
-
-        data_parser.add_argument(
-                "--with_negative",
-                action="store_true",
-                help="If true, the examples contain some that do not have an answer.",
-        )
-        data_parser.add_argument("--n_best_size",
-                                 default=5,
-                                 type=int,
-                                 help="The total number of n-best predictions to generate in the nbest_"
-                                      "predictions.json output file.")
-        data_parser.add_argument(
-                "--max_answer_length",
-                default=10,
-                type=int,
-                help="The maximum length of an answer that can be generated."
-                     " This is needed because the start "
-                     "and end predictions are not conditioned on one another.",
-        )
-        return data_parser
-
-    @staticmethod
-    def read_train_data(file):
-        # 数据格式发生变化时需要重构的函数
-        with open(file, "r", encoding="utf-8") as g:
-            s = json.loads(g.read())
-            data = s["data"]
-            name = s["name"]
-            example_index=0
-            for d in data:
-                context_text = d["context"]
-                for qa in d["qas"]:
-                    qa_id = qa["id"]
-                    question = qa["question"]
-                    answers = qa["answers"]
-                    is_impossible = False
-                    if len(answers) == 0:
-                        is_impossible = True
-                        example = QuestionAnswerInputExampleFast(example_index=example_index,
-                                                                 title=name,
-                                                                 question_text=question,
-                                                                 context_text=context_text,
-                                                                 is_impossible=True,
-                                                                 qas_id=qa_id,
-                                                                 answers=[])
-                        example_index+=1
-                        yield example
-                    if not is_impossible:
-                        example = QuestionAnswerInputExampleFast(example_index=example_index,
-                                                                 title=name,
-                                                                 question_text=question,
-                                                                 context_text=context_text,
-                                                                 qas_id=qa_id,
-                                                                 is_impossible=False,
-                                                                 answers=answers)
-                        example_index+=1
-                        yield example
-
-    @staticmethod
-    def convert_examples_to_features_pool(examples,
-                                          tokenizer,
-                                          max_length,
-                                          doc_stride,
-                                          is_training,
-                                          threads=3,
-                                          tqdm_enabled=True,
-                                          ):
-        threads = min(threads, cpu_count())
-        with Pool(threads) as p:
-            annotate_ = partial(convert_example_to_features_fast,
-                                tokenizer=tokenizer,
-                                max_length=max_length,
-                                doc_stride=doc_stride,
-                                is_training=is_training,
-                                )
-            features = list(
-                    tqdm(
-                            p.imap(annotate_, examples, chunksize=32),
-                            total=len(examples),
-                            desc="convert examples to features",
-                            disable=not tqdm_enabled,
-                    )
-            )
-            new_feature = []
-
-            for f in features:
-                new_feature.extend(f)
-            features = new_feature
-
-            return features
-
-    def setup(self, stage: Optional[str] = None):
-        if stage == "fit" or stage is None:
-            train_file = self.train_data
-            examples = list(self.read_train_data(train_file))
-
-            self.train_feature = self.convert_examples_to_features_pool(examples=examples,
-                                                                        tokenizer=self.tokenizer,
-                                                                        max_length=self.args.max_seq_length,
-                                                                        doc_stride=self.args.doc_stride,
-                                                                        is_training=True)
-
-
-            self.val_examples = list(self.read_train_data(train_file))
-            self.val_features = self.convert_examples_to_features_pool(examples=self.val_examples,
-                                                                       tokenizer=self.tokenizer,
-                                                                       max_length=self.args.max_seq_length,
-                                                                       doc_stride=self.args.doc_stride,
-                                                                       is_training=False)
+        self.train_features = train_features
+        self.val_examples = val_examples
+        self.val_features = val_features
+        super(BertQADataModule, self).__init__()
 
     def train_dataloader(self):
-        return DataLoader(dataset=QuestionAnswerDataset(features=self.train_feature),
-                          batch_size=self.batch_size,
+        return DataLoader(dataset=QuestionAnswerDataset(features=self.train_features),
+                          batch_size=self.args.batch_size,
                           num_workers=4,
                           pin_memory=True,
                           )
 
     def val_dataloader(self):
         return DataLoader(dataset=QuestionAnswerDataset(features=self.val_features),
-                          batch_size=self.batch_size,
+                          batch_size=self.args.batch_size,
                           num_workers=4,
                           pin_memory=True,
                           )
@@ -566,16 +510,84 @@ if __name__ == '__main__':
     parser.add_argument("--focal_gamma", type=float, default=2, help="gamma for focal loss.")
     parser.add_argument("--focal_alpha", type=float, help="alpha for focal loss.")
 
+    parser.add_argument("--max_query_length",
+                        type=int,
+                        default=64,
+                        help="The maximum number of tokens for the question. "
+                             "Questions longer than this will be truncated to this length.")
+    # 用于处理
+    parser.add_argument("--max_seq_length",
+                        type=int,
+                        default=128,
+                        help="The maximum total input sequence length after WordPiece tokenization. "
+                             "Sequences longer than this will be truncated, "
+                             "and sequences shorter than this will be padded.")
+    parser.add_argument("--doc_stride",
+                        type=int,
+                        default=512,
+                        help="When splitting up a long document into chunks,"
+                             " how much stride to take between chunks.")
+
+    parser.add_argument(
+            "--with_negative",
+            action="store_true",
+            help="If true, the examples contain some that do not have an answer.",
+    )
+    parser.add_argument("--n_best_size",
+                        default=5,
+                        type=int,
+                        help="The total number of n-best predictions to generate in the nbest_"
+                             "predictions.json output file.")
+    parser.add_argument(
+            "--max_answer_length",
+            default=10,
+            type=int,
+            help="The maximum length of an answer that can be generated."
+                 " This is needed because the start "
+                 "and end predictions are not conditioned on one another.",
+    )
+
     parser = BertForQA.add_model_specific_args(parser)
-    parser = BerQADataModule.add_data_specific_args(parser)
+
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
+
     check_point = ModelCheckpoint(dirpath=args.output_dir)
     # early_stop = EarlyStopping("f1", mode="max", patience=3, min_delta=0.2)
     trainer = Trainer.from_argparse_args(parser,
                                          default_root_dir=args.output_dir,
                                          callbacks=[check_point],
                                          strategy=DDPStrategy(find_unused_parameters=False))
-    data_module = BerQADataModule(args)
+
+    tokenizer = BertTokenizerFast.from_pretrained(args.bert_config_dir)
+
+    train_examples = list(read_train_data(args.train_data))
+
+    train_features = convert_examples_to_features_pool(examples=train_examples,
+                                                       tokenizer=tokenizer,
+                                                       max_length=args.max_seq_length,
+                                                       doc_stride=args.doc_stride,
+                                                       is_training=True)
+    val_examples = list(read_train_data(args.dev_data))
+    val_features = convert_examples_to_features_pool(examples=val_examples,
+                                                     tokenizer=tokenizer,
+                                                     max_length=args.max_seq_length,
+                                                     doc_stride=args.doc_stride,
+                                                     is_training=False)
+
+    train_dataloader = DataLoader(dataset=QuestionAnswerDataset(features=train_features),
+                                  batch_size=args.batch_size,
+                                  num_workers=4,
+                                  pin_memory=True,
+                                  )
+    val_dataloader = DataLoader(dataset=QuestionAnswerDataset(features=val_features),
+                                batch_size=args.batch_size,
+                                num_workers=4,
+                                pin_memory=True,
+                                )
+
+    datamodule = BertQADataModule(args=args, train_features=train_features, val_examples=val_examples,
+                                  val_features=val_features)
     model = BertForQA(args)
-    trainer.fit(model, datamodule=data_module)
+
+    trainer.fit(model, datamodule=datamodule)

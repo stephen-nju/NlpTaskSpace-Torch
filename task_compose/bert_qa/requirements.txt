@@ -1,7 +1,7 @@
 #先安装torch
 torch==1.8.1
 
-# 在安装lightning 依赖
+# 再安装lightning 依赖
 typing_extensions==4.2.0
 pyDeprecate==0.3.2
 fsspec==2022.3.0

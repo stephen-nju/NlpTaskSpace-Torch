@@ -785,7 +785,7 @@ def question_answer_evaluation(
         tokenizer,
     )
     r = squad_evaluate(all_examples, all_predictions)
-
+    print(r)
     return r
 
 
