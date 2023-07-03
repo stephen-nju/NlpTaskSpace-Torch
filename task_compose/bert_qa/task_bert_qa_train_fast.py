@@ -13,7 +13,7 @@ tokenizer中新增了很多字段，能够解决中文的对齐，所以来重�
 
 
 """
-
+import pickle
 import argparse
 import json
 import os
@@ -21,7 +21,7 @@ from abc import ABC
 from functools import partial
 from multiprocessing.dummy import Pool
 from os import cpu_count
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union,Optional
 
 import numpy as np
 import pytorch_lightning as pl
@@ -97,6 +97,9 @@ def convert_example_to_features_fast(
         doc_stride,
         is_training):
     # 批处理
+    if isinstance(examples,QuestionAnswerInputExampleFast):
+        examples=[examples]
+
     features = []
     questions = [example.question_text for example in examples]
     contexts = [example.context_text for example in examples]
@@ -243,20 +246,96 @@ def convert_examples_to_features_pool(examples,
         return features
 
 
-class BertQADataModule(pl.LightningDataModule, ABC):
+class BertQATrainDataModule(pl.LightningDataModule, ABC):
 
-    def __init__(self,
-                 args,
-                 train_features,
-                 val_examples,
-                 val_features
-                 ):
+    def __init__(self,args):
         assert isinstance(args, argparse.Namespace)
         self.args = args
-        self.train_features = train_features
-        self.val_examples = val_examples
-        self.val_features = val_features
-        super(BertQADataModule, self).__init__()
+        self.cache_path=os.path.join(os.path.dirname(args.train_data),"cache")
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.bert_config_dir)
+        super(BertQATrainDataModule, self).__init__()
+
+    def prepare_data(self):
+        if not os.path.exists(self.cache_path):
+            os.makedirs(self.cache_path)
+            
+        train_examples = list(self.read_train_data(self.args.train_data))
+        train_features = convert_examples_to_features_pool(examples=self.train_examples,
+                                                        tokenizer=self.tokenizer,
+                                                        max_length=self.args.max_seq_length,
+                                                        doc_stride=self.args.doc_stride,
+                                                        is_training=True)
+        
+        val_examples = list(read_train_data(self.args.dev_data))
+        val_features = convert_examples_to_features_pool(examples=self.val_examples,
+                                                        tokenizer=self.tokenizer,
+                                                        max_length=self.args.max_seq_length,
+                                                        doc_stride=self.args.doc_stride,
+                                                        is_training=False)
+        with open(os.path.join(self.cache_path,"train_features.pkl"),'wb') as g:
+            pickle.dump(train_features,g)
+        
+        with open(os.path.join(self.cache_path,"val_features.pkl"),"wb") as g:
+            pickle.dump(val_features,g)
+        
+
+
+        with open(os.path.join(self.cache_path,"val_examples.pkl"),"wb") as g:
+            pickle.dump(val_examples,g)
+
+
+
+    @staticmethod
+    def read_train_data(file):
+        # 数据格式发生变化时需要重构的函数
+        with open(file, "r", encoding="utf-8") as g:
+            s = json.loads(g.read())
+            data = s["data"]
+            name = s["name"]
+            example_index = 0
+            for d in data:
+                context_text = d["context"]
+                for qa in d["qas"]:
+                    qa_id = qa["id"]
+                    question = qa["question"]
+                    answers = qa["answers"]
+                    is_impossible = False
+                    if len(answers) == 0:
+                        is_impossible = True
+                        example = QuestionAnswerInputExampleFast(example_index=example_index,
+                                                                title=name,
+                                                                question_text=question,
+                                                                context_text=context_text,
+                                                                is_impossible=True,
+                                                                qas_id=qa_id,
+                                                                answers=[])
+                        example_index += 1
+                        yield example
+                    if not is_impossible:
+                        example = QuestionAnswerInputExampleFast(example_index=example_index,
+                                                                title=name,
+                                                                question_text=question,
+                                                                context_text=context_text,
+                                                                qas_id=qa_id,
+                                                                is_impossible=False,
+                                                                answers=answers)
+                        example_index += 1
+                        yield example
+
+
+    def setup(self, stage: Optional[str] = None):
+        if stage == "fit" or stage is None:
+            
+            with open(os.path.join(self.cache_path,"train_features.pkl"),'rb') as f:
+                self.train_features=pickle.load(f)
+            
+            with open(os.path.join(self.cache_path,"val_features.pkl"),"rb") as g:
+                self.val_features=pickle.load(g)
+            
+            with open(os.path.join(self.cache_path,"val_examples.pkl"),"rb") as g:
+                self.val_examples=pickle.load(g)
+                                                               
+    
 
     def train_dataloader(self):
         return DataLoader(dataset=QuestionAnswerDataset(features=self.train_features),
@@ -558,36 +637,6 @@ if __name__ == '__main__':
                                          default_root_dir=args.output_dir,
                                          callbacks=[check_point],
                                          strategy=DDPStrategy(find_unused_parameters=False))
-
-    tokenizer = BertTokenizerFast.from_pretrained(args.bert_config_dir)
-
-    train_examples = list(read_train_data(args.train_data))
-
-    train_features = convert_examples_to_features_pool(examples=train_examples,
-                                                       tokenizer=tokenizer,
-                                                       max_length=args.max_seq_length,
-                                                       doc_stride=args.doc_stride,
-                                                       is_training=True)
-    val_examples = list(read_train_data(args.dev_data))
-    val_features = convert_examples_to_features_pool(examples=val_examples,
-                                                     tokenizer=tokenizer,
-                                                     max_length=args.max_seq_length,
-                                                     doc_stride=args.doc_stride,
-                                                     is_training=False)
-
-    train_dataloader = DataLoader(dataset=QuestionAnswerDataset(features=train_features),
-                                  batch_size=args.batch_size,
-                                  num_workers=4,
-                                  pin_memory=True,
-                                  )
-    val_dataloader = DataLoader(dataset=QuestionAnswerDataset(features=val_features),
-                                batch_size=args.batch_size,
-                                num_workers=4,
-                                pin_memory=True,
-                                )
-
-    datamodule = BertQADataModule(args=args, train_features=train_features, val_examples=val_examples,
-                                  val_features=val_features)
+    datamodule = BertQATrainDataModule(args=args)
     model = BertForQA(args)
-
     trainer.fit(model, datamodule=datamodule)

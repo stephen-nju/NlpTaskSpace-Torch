@@ -11,13 +11,36 @@ import fasttext
 import jieba
 from tqdm import tqdm
 
+data=""
+
+def filter_query(text):
+    if isinstance(text,str) and text.isdigit():
+        return False
+    
+    if isinstance(text,int) or isinstance(text,float):
+        return False
+
+    # 删除ticketID=和 tag=
+    
+    if "ticketID=" in text or "tag=" in text:
+        return False
+
+    return True
+
+
+
 if __name__ == '__main__':
 
     classifier = fasttext.load_model("model.bin")
     p = []
-    with open("data/predict.txt", "r", encoding="utf-8") as g:
+    with open(data, "r", encoding="utf-8") as g:
         for line in g:
-            p.append(line.strip().split("\t"))
+            if filter_query(line.strip())
+                p.append(line.strip().split("\t"))
+
+
+
+
 
     output = []
     for t in tqdm(p):
