@@ -160,7 +160,7 @@ class TplinkerPlusNer(BertPreTrainedModel):
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
 
     def __init__(self, config):
-        super().__init__(config)
+        super(TplinkerPlusNer).__init__(config)
         self.num_labels = config.num_labels
 
         self.bert = BertModel(config, add_pooling_layer=False)
@@ -169,7 +169,7 @@ class TplinkerPlusNer(BertPreTrainedModel):
         )
         self.dropout = nn.Dropout(classifier_dropout)
         self.handshaking_kernel = TplinkerHandshakingKernel(768, shaking_type='cln_plus', inner_enc_type='lstm')
-        self.fc = nn.Linear(768,config.num_tags)
+        self.fc = nn.Linear(768,config.num_labels)
         self.post_init()
 
     def forward(self, token_ids, attention_masks, token_type_ids, labels=None):
@@ -181,12 +181,7 @@ class TplinkerPlusNer(BertPreTrainedModel):
         output = bert_outputs[0] # [btz, seq_len, hdsz]
         shaking_hiddens = self.handshaking_kernel(output)
         output = self.fc(shaking_hiddens)  # [btz, pair_len, tag_size]
-        if labels is None:
-          return output
-        preds = output.view(-1, self.args.num_tags)
-        labels = labels.view(-1, self.args.num_tags)
-        loss = self.criterion(preds, labels)
-        return loss, output
+        return output
 
 
 

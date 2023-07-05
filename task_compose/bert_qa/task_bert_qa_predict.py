@@ -182,7 +182,6 @@ class BertForQA(pl.LightningModule):
         super().__init__()
         self.args = args
         self.bert_dir = self.args.bert_config_dir
-        self.data_dir = self.args.data_dir
         bert_config = BertForQAConfig.from_pretrained(self.args.bert_config_dir)
         self.model = BertForQuestionAnswering.from_pretrained(self.args.bert_config_dir,
                                                               config=bert_config)

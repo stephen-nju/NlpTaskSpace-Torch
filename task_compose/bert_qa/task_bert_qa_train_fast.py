@@ -52,44 +52,6 @@ seed_everything(42)
 2：文本对齐（需要指定return_offsets_mapping，用于后处理找到答案位置）
 """
 
-
-def read_train_data(file):
-    # 数据格式发生变化时需要重构的函数
-    with open(file, "r", encoding="utf-8") as g:
-        s = json.loads(g.read())
-        data = s["data"]
-        name = s["name"]
-        example_index = 0
-        for d in data:
-            context_text = d["context"]
-            for qa in d["qas"]:
-                qa_id = qa["id"]
-                question = qa["question"]
-                answers = qa["answers"]
-                is_impossible = False
-                if len(answers) == 0:
-                    is_impossible = True
-                    example = QuestionAnswerInputExampleFast(example_index=example_index,
-                                                             title=name,
-                                                             question_text=question,
-                                                             context_text=context_text,
-                                                             is_impossible=True,
-                                                             qas_id=qa_id,
-                                                             answers=[])
-                    example_index += 1
-                    yield example
-                if not is_impossible:
-                    example = QuestionAnswerInputExampleFast(example_index=example_index,
-                                                             title=name,
-                                                             question_text=question,
-                                                             context_text=context_text,
-                                                             qas_id=qa_id,
-                                                             is_impossible=False,
-                                                             answers=answers)
-                    example_index += 1
-                    yield example
-
-
 def convert_example_to_features_fast(
         examples: Union[List[QuestionAnswerInputExampleFast], QuestionAnswerInputExampleFast],
         tokenizer,
@@ -277,8 +239,6 @@ class BertQATrainDataModule(pl.LightningDataModule, ABC):
         
         with open(os.path.join(self.cache_path,"val_features.pkl"),"wb") as g:
             pickle.dump(val_features,g)
-        
-
 
         with open(os.path.join(self.cache_path,"val_examples.pkl"),"wb") as g:
             pickle.dump(val_examples,g)

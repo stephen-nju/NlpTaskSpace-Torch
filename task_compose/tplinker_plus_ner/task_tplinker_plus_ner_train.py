@@ -1,22 +1,122 @@
 # -----*----coding:utf8-----*----
-
 import argparse
-import torch
+import json
+import os
+import pickle
+
 import pytorch_lightning as pl
-from modeling.tplinker_plus.modeling_tplinker_plus import TplinkerPlusNer
+import torch
+import torch.nn.functional as F
+from pytorch_lightning import seed_everything
+from sklearn.preprocessing import LabelEncoder
+from torch.utils.data.dataloader import DataLoader
+from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
+from transformers import BertTokenizerFast
+
+from datahelper.tplinker_plus.tplinker_plus_dataset import convert_examples_to_features, TplinkerPlusNerDataset, \
+    TplinkerPlusNerInputExample
 from modeling.tplinker_plus.configure_tplinker_plus import TplinkerPlusNerConfig
+from modeling.tplinker_plus.modeling_tplinker_plus import TplinkerPlusNer
+
+seed_everything(42)
+
+
+class MultilabelCategoricalCrossentropy(nn.Module):
+    """多标签分类的交叉熵
+    说明：y_true和y_pred的shape一致，y_true的元素非0即1， 1表示对应的类为目标类，0表示对应的类为非目标类。
+    警告：请保证y_pred的值域是全体实数，换言之一般情况下y_pred不用加激活函数，尤其是不能加sigmoid或者softmax！预测
+         阶段则输出y_pred大于0的类。如有疑问，请仔细阅读并理解本文。
+    参考：https://kexue.fm/archives/7359
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+    def forward(self, y_pred, y_true):
+        """ y_true ([Tensor]): [..., num_classes]
+            y_pred ([Tensor]): [..., num_classes]
+        """
+        y_pred = (1-2*y_true) * y_pred
+        y_pred_pos = y_pred - (1-y_true) * 1e12
+        y_pred_neg = y_pred - y_true * 1e12
+
+        y_pred_pos = torch.cat([y_pred_pos, torch.zeros_like(y_pred_pos[..., :1])], dim=-1)
+        y_pred_neg = torch.cat([y_pred_neg, torch.zeros_like(y_pred_neg[..., :1])], dim=-1)
+        pos_loss = torch.logsumexp(y_pred_pos, dim=-1)
+        neg_loss = torch.logsumexp(y_pred_neg, dim=-1)
+        return (pos_loss + neg_loss).mean()
+class TplinkerPlusNerDataModule(pl.LightningDataModule):
+
+    def __init__(self, args) -> None:
+        self.args = args
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.bert_model)
+        self.label_encode = LabelEncoder()
+        self.label_encode.fit(self.get_labels())
+        self.cache_path = os.path.join(os.path.dirname(args.train_data), "cache")
+        if not os.path.exists(self.cache_path):
+            os.makedirs(self.cache_path)
+        super().__init__()
+
+    def prepare_data(self):
+        train_examples = list(self.read_train_data(self.args.train_data))
+        train_features = convert_examples_to_features(examples=train_examples,
+                                                      tokenizer=self.tokenizer,
+                                                      label_encode=self.label_encode,
+                                                      max_length=self.args.max_length
+                                                      )
+        with open(os.path.join(self.cache_path, "train_feature.pkl"), "wb") as g:
+            pickle.dump(train_features, g)
+
+    def read_train_data(self, path):
+        with open(path, "r", encoding="utf-8") as g:
+            s = json.loads(g.read())
+            data = s["data"]
+            name = s["name"]
+            example_index = 0
+            for d in data:
+                context_text = d["context"]
+                labels = []
+                for qa in d["qas"]:
+                    qa_id = qa["id"]
+                    question = qa["question"]
+                    answers = qa["answers"]
+                    if len(answers) > 0:
+                        if question == "标题中产品提及有哪些":
+                            start = answers[0]["answer_start"]
+                            end = start + len(answers[0]["text"])
+                            labels.append([start, end, "HC", answers[0]["text"]])
+
+                        if question == "标题中品牌提及有哪些":
+                            start = answers[0]["answer_start"]
+                            end = start + len(answers[0]["text"])
+                            labels.append([start, end, "HP", answers[0]["text"]])
+
+                yield TplinkerPlusNerInputExample(text=context_text,
+                                                  labels=labels)
+
+    def get_labels(self):
+        return ["XH", "HC", "HP"]
+
+    def setup(self, stage: str) -> None:
+        with open(os.path.join(self.cache_path, "train_feature.pkl"), "rb") as g:
+            self.train_features = pickle.load(g)
+
+    def train_dataloader(self):
+        return DataLoader(dataset=TplinkerPlusNerDataset(self.train_features),
+                          batch_size=self.args.batch_size,
+                          num_workers=4,
+                          pin_memory=True,
+                          )
 
 
 class TplinerPlusNerModule(pl.LightningModule):
-    
-    def __init__(self, args):
-        self.args=args
-        config = TplinkerPlusNerConfig.from_pretrained(self.args.bert_model)
-        
-        self.model=TplinkerPlusNer.from_pretrained(args.bert_model,config=config)
-        
-        self.save_hyperparameters()
 
+    def __init__(self, args):
+        super().__init__()
+        self.args = args
+        config = TplinkerPlusNerConfig.from_pretrained(self.args.bert_model)
+        config.num_labels = args.num_labels
+        self.model = TplinkerPlusNer.from_pretrained(args.bert_model, config=config)
+        self.loss=MultilabelCategoricalCrossentropy()
+        self.save_hyperparameters()
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -82,60 +182,38 @@ class TplinerPlusNerModule(pl.LightningModule):
         """forward inputs to BERT models."""
         return self.model(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
 
+    def compute_loss(self, inputs, target):
+        loss = self.loss(inputs, target)
+        return loss
 
     def training_step(self, batch, batch_idx):
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         token_type_ids = batch["token_type_ids"]
-        start_labels = batch["start_position"]
-        end_labels = batch["end_position"]
-        label_mask = batch["label_mask"]
-        start_logits, end_logits = self(input_ids, attention_mask, token_type_ids)
-        total_loss, start_loss, end_loss = self.compute_loss(start_logits, end_logits, start_labels, end_labels,
-                                                             label_mask)
+        label = batch["labels"]
+        logits = self.model(input_ids, attention_mask, token_type_ids)
+        total_loss = self.compute_loss(logits, label)
 
         self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], prog_bar=True)
-        self.log("train_start_loss", start_loss, prog_bar=True)
-        self.log("train_end_loss", end_loss, prog_bar=True)
         self.log("train_total_loss", total_loss, prog_bar=True)
 
         return total_loss
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
-    
-    parser=argparse.ArgumentParser(description="train tplinker ner model")
+    parser = argparse.ArgumentParser(description="train tplinker ner model")
     parser.add_argument("--output_dir", type=str, default="./output_dir/", help="")
-    parser.add_argument("--data_dir", type=str,
-                        default="/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_code_repository/NlpTaskSpace/data/tplinker",
-                        help="data dir")
-    parser.add_argument("--bert_dir", type=str,
+
+    parser.add_argument("--train_data", type=str, default="", help="train data path")
+    parser.add_argument("--test_data", type=str, default="", help="test data path")
+    parser.add_argument("--dev_data", type=str, default="", help="dev data path")
+    parser.add_argument("--bert_model", type=str,
                         default="/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model",
                         help="bert config dir")
-    parser.add_argument("--pretrained_checkpoint", default="", type=str, help="pretrained checkpoint path")
     parser.add_argument("--batch_size", type=int, default=8, help="batch size")
+    parser.add_argument("--max_length", type=int, default=128, help="max input sequence length")
     parser.add_argument("--lr", type=float, default=2e-5, help="learning rate")
+    parser.add_argument("--num_labels", type=int, default=3, help="number of entity type")
     parser.add_argument("--lr_scheduler", choices=["linear", "onecycle", "polydecay"], default="onecycle")
     parser.add_argument("--workers", type=int, default=0, help="num workers for dataloader")
     parser.add_argument("--weight_decay", default=0.01, type=float,
@@ -148,9 +226,9 @@ if __name__ == "__main__":
                         help="final div factor of linear decay scheduler")
 
     parser = pl.Trainer.add_argparse_args(parser)
-    parser=TplinerPlusNerModule.add_model_specific_args(parser)
-
-    args=parser.parse_args()
-    
-
-
+    parser = TplinerPlusNerModule.add_model_specific_args(parser)
+    args = parser.parse_args()
+    model = TplinerPlusNerModule(args)
+    trainer = pl.Trainer.from_argparse_args(args)
+    datamodule = TplinkerPlusNerDataModule(args)
+    trainer.fit(model, datamodule=datamodule)
