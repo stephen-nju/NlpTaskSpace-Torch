@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
-from transformers import BertModel,BertPreTrainedModel
+from torch import Tensor
+from transformers import BertModel, BertPreTrainedModel
+
 
 class MultilabelCategoricalCrossentropy(nn.Module):
     """多标签分类的交叉熵
@@ -9,14 +11,16 @@ class MultilabelCategoricalCrossentropy(nn.Module):
          阶段则输出y_pred大于0的类。如有疑问，请仔细阅读并理解本文。
     参考：https://kexue.fm/archives/7359
     """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
     def forward(self, y_pred, y_true):
         """ y_true ([Tensor]): [..., num_classes]
             y_pred ([Tensor]): [..., num_classes]
         """
-        y_pred = (1-2*y_true) * y_pred
-        y_pred_pos = y_pred - (1-y_true) * 1e12
+        y_pred = (1 - 2 * y_true) * y_pred
+        y_pred_pos = y_pred - (1 - y_true) * 1e12
         y_pred_neg = y_pred - y_true * 1e12
 
         y_pred_pos = torch.cat([y_pred_pos, torch.zeros_like(y_pred_pos[..., :1])], dim=-1)
@@ -25,13 +29,15 @@ class MultilabelCategoricalCrossentropy(nn.Module):
         neg_loss = torch.logsumexp(y_pred_neg, dim=-1)
         return (pos_loss + neg_loss).mean()
 
+
 class LayerNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-12, conditional_size=False, weight=True, bias=True, norm_mode='normal', **kwargs):
+    def __init__(self, hidden_size, eps=1e-12, conditional_size=False, weight=True, bias=True, norm_mode='normal',
+                 **kwargs):
         """layernorm 层，这里自行实现，目的是为了兼容 conditianal layernorm，使得可以做条件文本生成、条件分类等任务
            条件layernorm来自于苏剑林的想法，详情：https://spaces.ac.cn/archives/7124
         """
         super(LayerNorm, self).__init__()
-        
+
         # 兼容roformer_v2不包含weight
         if weight:
             self.weight = nn.Parameter(torch.ones(hidden_size))
@@ -74,15 +80,17 @@ class LayerNorm(nn.Module):
             # print(inputs.shape, cond.shape, o.shape)
             for _ in range(len(inputs.shape) - len(cond.shape)):
                 cond = cond.unsqueeze(dim=1)
-            
+
             return (self.weight + self.dense1(cond)) * o + (self.bias + self.dense2(cond))
         else:
             return self.weight * o + self.bias
+
 
 class TplinkerHandshakingKernel(nn.Module):
     '''
     Tplinker的HandshakingKernel实现
     '''
+
     def __init__(self, hidden_size, shaking_type, inner_enc_type=''):
         super().__init__()
         self.shaking_type = shaking_type
@@ -95,13 +103,14 @@ class TplinkerHandshakingKernel(nn.Module):
         elif shaking_type == "cln_plus":
             self.tp_cln = LayerNorm(hidden_size, conditional_size=hidden_size)
             self.inner_context_cln = LayerNorm(hidden_size, conditional_size=hidden_size)
-            
+
         self.inner_enc_type = inner_enc_type
         if inner_enc_type == "mix_pooling":
             self.lamtha = nn.Parameter(torch.rand(hidden_size))
         elif inner_enc_type == "lstm":
-            self.inner_context_lstm = nn.LSTM(hidden_size, hidden_size, num_layers=1, bidirectional=False, batch_first=True)
-        
+            self.inner_context_lstm = nn.LSTM(hidden_size, hidden_size, num_layers=1, bidirectional=False,
+                                              batch_first=True)
+
         # 自行实现的用torch.gather方式来做，避免循环，目前只实现了cat方式
         # tag_ids = [(i, j) for i in range(maxlen) for j in range(maxlen) if j >= i]
         # gather_idx = torch.tensor(tag_ids, dtype=torch.long).flatten()[None, :, None]
@@ -111,19 +120,21 @@ class TplinkerHandshakingKernel(nn.Module):
         # seq_hiddens: (batch_size, seq_len, hidden_size)
         def pool(seqence, pooling_type):
             if pooling_type == "mean_pooling":
-                pooling = torch.mean(seqence, dim = -2)
+                pooling = torch.mean(seqence, dim=-2)
             elif pooling_type == "max_pooling":
-                pooling, _ = torch.max(seqence, dim = -2)
+                pooling, _ = torch.max(seqence, dim=-2)
             elif pooling_type == "mix_pooling":
-                pooling = self.lamtha * torch.mean(seqence, dim = -2) + (1 - self.lamtha) * torch.max(seqence, dim = -2)[0]
+                pooling = self.lamtha * torch.mean(seqence, dim=-2) + (1 - self.lamtha) * torch.max(seqence, dim=-2)[0]
             return pooling
+
         if "pooling" in inner_enc_type:
-            inner_context = torch.stack([pool(seq_hiddens[:, :i+1, :], inner_enc_type) for i in range(seq_hiddens.size()[1])], dim = 1)
+            inner_context = torch.stack(
+                    [pool(seq_hiddens[:, :i + 1, :], inner_enc_type) for i in range(seq_hiddens.size()[1])], dim=1)
         elif inner_enc_type == "lstm":
             inner_context, _ = self.inner_context_lstm(seq_hiddens)
-            
+
         return inner_context
-    
+
     def forward(self, seq_hiddens):
         '''
         seq_hiddens: (batch_size, seq_len, hidden_size)
@@ -134,15 +145,16 @@ class TplinkerHandshakingKernel(nn.Module):
         shaking_hiddens_list = []
         for ind in range(seq_len):
             hidden_each_step = seq_hiddens[:, ind, :]  # [batch_size, hidden_size]
-            visible_hiddens = seq_hiddens[:, ind:, :] # ind: only look back, [batch_size, seq_len - ind, hidden_size]
-            repeat_hiddens = hidden_each_step[:, None, :].repeat(1, seq_len - ind, 1)  # [batch_size, seq_len - ind, hidden_size]
-            
+            visible_hiddens = seq_hiddens[:, ind:, :]  # ind: only look back, [batch_size, seq_len - ind, hidden_size]
+            repeat_hiddens = hidden_each_step[:, None, :].repeat(1, seq_len - ind,
+                                                                 1)  # [batch_size, seq_len - ind, hidden_size]
+
             if self.shaking_type == "cat":
-                shaking_hiddens = torch.cat([repeat_hiddens, visible_hiddens], dim = -1)
+                shaking_hiddens = torch.cat([repeat_hiddens, visible_hiddens], dim=-1)
                 shaking_hiddens = torch.tanh(self.combine_fc(shaking_hiddens))
             elif self.shaking_type == "cat_plus":
                 inner_context = self.enc_inner_hiddens(visible_hiddens, self.inner_enc_type)
-                shaking_hiddens = torch.cat([repeat_hiddens, visible_hiddens, inner_context], dim = -1)
+                shaking_hiddens = torch.cat([repeat_hiddens, visible_hiddens, inner_context], dim=-1)
                 shaking_hiddens = torch.tanh(self.combine_fc(shaking_hiddens))
             elif self.shaking_type == "cln":
                 shaking_hiddens = self.tp_cln([visible_hiddens, repeat_hiddens])
@@ -152,7 +164,7 @@ class TplinkerHandshakingKernel(nn.Module):
                 shaking_hiddens = self.inner_context_cln([shaking_hiddens, inner_context])
 
             shaking_hiddens_list.append(shaking_hiddens)
-        long_shaking_hiddens = torch.cat(shaking_hiddens_list, dim = 1)
+        long_shaking_hiddens = torch.cat(shaking_hiddens_list, dim=1)
         return long_shaking_hiddens
 
 
@@ -160,28 +172,25 @@ class TplinkerPlusNer(BertPreTrainedModel):
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
 
     def __init__(self, config):
-        super(TplinkerPlusNer).__init__(config)
+        super(TplinkerPlusNer, self).__init__(config)
         self.num_labels = config.num_labels
 
         self.bert = BertModel(config, add_pooling_layer=False)
         classifier_dropout = (
-            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+                config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
         )
         self.dropout = nn.Dropout(classifier_dropout)
         self.handshaking_kernel = TplinkerHandshakingKernel(768, shaking_type='cln_plus', inner_enc_type='lstm')
-        self.fc = nn.Linear(768,config.num_labels)
+        self.fc = nn.Linear(768, config.num_labels)
         self.post_init()
 
-    def forward(self, token_ids, attention_masks, token_type_ids, labels=None):
+    def forward(self, input_ids: Tensor, attention_mask: Tensor, token_type_ids: Tensor):
         bert_outputs = self.bert(
-            input_ids=token_ids,
-            attention_mask=attention_masks,
-            token_type_ids=token_type_ids
-        )  
-        output = bert_outputs[0] # [btz, seq_len, hdsz]
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids
+        )
+        output = bert_outputs[0]  # [btz, seq_len, hdsz]
         shaking_hiddens = self.handshaking_kernel(output)
         output = self.fc(shaking_hiddens)  # [btz, pair_len, tag_size]
         return output
-
-
-

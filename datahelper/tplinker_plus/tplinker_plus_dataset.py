@@ -7,13 +7,15 @@ from multiprocessing.dummy import Pool
 from os import cpu_count
 
 import numpy as np
+import torch
 from torch.utils.data.dataset import Dataset
 from tqdm import tqdm
 
 
 def trans_ij2k(seq_len, i, j):
-    '''把第i行，第j列转化成上三角flat后的序号
-    '''
+    """
+    把第i行，第j列转化成上三角flat后的序号
+    """
     if (i > seq_len - 1) or (j > seq_len - 1) or (i > j):
         return 0
     return int(0.5 * (2 * seq_len - i + 1) * i + (j - i))
@@ -46,20 +48,32 @@ def convert_single_example(example, tokenizer, label_encode, max_length):
         # 从后去除padding和特殊字符的位置
         while offsets[token_end_index][0] == offsets[token_end_index][1] == 0:
             token_end_index -= 1
+        while offsets[token_start_index][0] == offsets[token_start_index][1] == 0:
+            token_start_index += 1
 
-        if not (offsets[token_start_index][0] <= start) and (offsets[token_end_index][1] >= end):
+        if not (offsets[token_start_index][0] <= start and offsets[token_end_index][1] >= end):
             # 无法定位实体的位置
             logging.warning("无法定位实体位置,直接跳过")
             continue
+        # 如果碰到context过长,截断会造成异常的
+
         while token_start_index < len(offsets) and offsets[token_start_index][0] <= start:
+            # 遇到padding数据，或者特殊结束符号，跳过
+            if offsets[token_start_index][0] == offsets[token_start_index][1] == 0:
+                break
             token_start_index += 1
         start_position = token_start_index - 1
         while token_end_index > 0 and offsets[token_end_index][1] >= end:
             token_end_index -= 1
+
         end_position = token_end_index + 1
         label_id = label_encode.transform([label])[0]
-        index = trans_ij2k(max_length, start_position, end_position)
-        label_matrix[index, label_id] = 1
+        if start_position <= end_position:
+            index = trans_ij2k(max_length, start_position, end_position)
+            label_matrix[index, label_id] = 1
+        else:
+            print(f"error compute start ,end position= {start_position},{end_position}")
+            continue
 
     return TplinkerPlusNerInputFeature(
             input_ids=input_ids,
@@ -115,9 +129,9 @@ class TplinkerPlusNerDataset(Dataset):
     def __getitem__(self, index):
         feature = self.features[index]
 
-        return {"input_ids"     : feature.input_ids,
-                "token_type_ids": feature.token_type_ids,
-                "attention_mask": feature.attention_mask,
-                "labels"        : feature.labels
+        return {"input_ids"     : torch.tensor(feature.input_ids, dtype=torch.long),
+                "token_type_ids": torch.tensor(feature.token_type_ids, dtype=torch.long),
+                "attention_mask": torch.tensor(feature.attention_mask, dtype=torch.long),
+                "labels"        : torch.tensor(feature.labels, dtype=torch.long)
 
                 }
