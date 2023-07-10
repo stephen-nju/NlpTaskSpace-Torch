@@ -17,7 +17,7 @@ from transformers import BertTokenizerFast
 from datahelper.tplinker_plus.tplinker_plus_dataset import convert_examples_to_features, \
     TplinkerPlusNerDataset, \
     TplinkerPlusNerInputExample, trans_ij2k
-from metrics.tpliner_plus_ner.ner_f1 import NerF1Metric
+from metrics.tplinker_plus_ner.ner_f1 import NerF1Metric
 from modeling.tplinker_plus.configure_tplinker_plus import TplinkerPlusNerConfig
 from modeling.tplinker_plus.modeling_tplinker_plus import TplinkerPlusNer
 
@@ -34,7 +34,7 @@ class MultilabelCategoricalCrossentropy(nn.Module):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
+        self.last_weights=None
     def GHM(self, gradient, bins=10, beta=0.9):
         """
         gradient_norm: gradient_norms of all examples in this batch; (batch_size, shaking_seq_len)
@@ -94,8 +94,8 @@ class MultilabelCategoricalCrossentropy(nn.Module):
         y_pred_neg = torch.cat([y_pred_neg, torch.zeros_like(y_pred_neg[..., :1])], dim=-1)
         pos_loss = torch.logsumexp(y_pred_pos, dim=-1)
         neg_loss = torch.logsumexp(y_pred_neg, dim=-1)
-        # return (self.GHM(neg_loss + pos_loss, bins=1000)).sum()
-        return (pos_loss + neg_loss).mean()
+        return (self.GHM(neg_loss + pos_loss, bins=1000)).sum()
+        # return (pos_loss + neg_loss).mean()
 
 
 class TplinkerPlusNerDataModule(pl.LightningDataModule):
@@ -105,7 +105,7 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
         self.tokenizer = BertTokenizerFast.from_pretrained(args.bert_model)
         self.label_encode = LabelEncoder()
         self.label_encode.fit(self.get_labels())
-        assert len(self.label_encode.classes_) == args.num_labels
+        assert self.label_encode.classes_.shape[0]== args.num_labels
         self.mapij2k = {(i, j): trans_ij2k(args.max_length, i, j) for i in range(args.max_length) for j in
                         range(args.max_length) if j >= i}
         self.mapk2ij = {v: k for k, v in self.mapij2k.items()}
@@ -158,11 +158,15 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
                             end = start + len(answers[0]["text"])
                             labels.append([start, end, "HP", answers[0]["text"]])
 
+                        if question == "标题中系列型号提及有哪些":
+                            start = answers[0]["answer_start"]
+                            end = start + len(answers[0]["text"])
+                            labels.append([start, end, "XL", answers[0]["text"]])
                 yield TplinkerPlusNerInputExample(text=context_text,
                                                   labels=labels)
 
     def get_labels(self):
-        return ["HC", "HP"]
+        return ["HC", "HP","XL"]
 
     def setup(self, stage: str) -> None:
         with open(os.path.join(self.cache_path, "train_feature.pkl"), "rb") as g:
@@ -311,7 +315,7 @@ if __name__ == "__main__":
                         default="/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model",
                         help="bert config dir")
     parser.add_argument("--batch_size", type=int, default=8, help="batch size")
-    parser.add_argument("--max_length", type=int, default=128, help="max input sequence length")
+    parser.add_argument("--max_length", type=int, default=64, help="max input sequence length")
     parser.add_argument("--lr", type=float, default=2e-5, help="learning rate")
     parser.add_argument("--num_labels", type=int, help="number of entity type")
     parser.add_argument("--lr_scheduler", choices=["linear", "onecycle", "polydecay"], default="onecycle")
