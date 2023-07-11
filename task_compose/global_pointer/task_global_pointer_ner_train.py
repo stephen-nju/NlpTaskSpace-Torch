@@ -11,17 +11,96 @@ import torch
 import torch.nn as nn
 from pytorch_lightning import seed_everything
 from pytorch_lightning.strategies import DDPStrategy
+from metrics.global_pointer.f1 import GlobalPointerF1Metric
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data.dataloader import DataLoader
 from transformers import AdamW, get_linear_schedule_with_warmup, get_polynomial_decay_schedule_with_warmup
 from transformers import BertTokenizerFast
+from typing import Optional
+from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
-from datahelper.global_pointer import GlobalPointerNerDataset,GlobalPointerNerInputExample,convert_examples_to_features
+from datahelper.global_pointer.global_pointer_dataset import GlobalPointerNerDataset,GlobalPointerNerInputExample,convert_examples_to_features
 from modeling.global_pointer.configure_global_pointer import GlobalPointerNerConfig
 from modeling.global_pointer.modeling_global_pointer import GlobalPointerNer
 
 
 seed_everything(42)
+
+
+
+class MultilabelCategoricalCrossentropy(nn.Module):
+    """多标签分类的交叉熵
+    说明：y_true和y_pred的shape一致，y_true的元素非0即1， 1表示对应的类为目标类，0表示对应的类为非目标类。
+    警告：请保证y_pred的值域是全体实数，换言之一般情况下y_pred不用加激活函数，尤其是不能加sigmoid或者softmax！预测
+         阶段则输出y_pred大于0的类。如有疑问，请仔细阅读并理解本文。
+    参考：https://kexue.fm/archives/7359
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.last_weights=None
+
+    def GHM(self, gradient, bins=10, beta=0.9):
+        """
+        gradient_norm: gradient_norms of all examples in this batch; (batch_size, shaking_seq_len)
+        """
+        avg = torch.mean(gradient)
+        std = torch.std(gradient) + 1e-12
+        gradient_norm = torch.sigmoid(
+                (gradient - avg) / std
+        )  # normalization and pass through sigmoid to 0 ~ 1.
+
+        min_, max_ = torch.min(gradient_norm), torch.max(gradient_norm)
+        gradient_norm = (gradient_norm - min_) / (max_ - min_)
+        gradient_norm = torch.clamp(
+                gradient_norm, 0, 0.9999999
+        )  # ensure elements in gradient_norm != 1.
+
+        example_sum = torch.flatten(gradient_norm).size()[0]  # N
+
+        # calculate weights
+        current_weights = torch.zeros(bins).to(gradient.device)
+        hits_vec = torch.zeros(bins).to(gradient.device)
+        count_hits = 0  # coungradient_normof hits
+        for i in range(bins):
+            bar = float((i + 1) / bins)
+            hits = torch.sum((gradient_norm <= bar)) - count_hits
+            count_hits += hits
+            hits_vec[i] = hits.item()
+            current_weights[i] = example_sum / bins / (hits.item() + example_sum / bins)
+        # EMA: exponential moving averaging
+        #         print()
+        #         print("hits_vec: {}".format(hits_vec))
+        #         print("current_weights: {}".format(current_weights))
+        if self.last_weights is None:
+            self.last_weights = torch.ones(bins).to(gradient.device)  # init by ones
+        current_weights = self.last_weights * beta + (1 - beta) * current_weights
+        self.last_weights = current_weights
+        #         print("ema current_weights: {}".format(current_weights))
+
+        # weights4examples: pick weights for all examples
+        weight_pk_idx = (gradient_norm / (1 / bins)).long()[:, :, None]
+        weights_rp = current_weights[None, None, :].repeat(
+                gradient_norm.size()[0], gradient_norm.size()[1], 1
+        )
+        weights4examples = torch.gather(weights_rp, -1, weight_pk_idx).squeeze(-1)
+        weights4examples /= torch.sum(weights4examples)
+        return weights4examples * gradient  # return weighted gradients
+
+    def forward(self, y_pred, y_true):
+        """ y_true ([Tensor]): [..., num_classes]
+            y_pred ([Tensor]): [..., num_classes]
+        """
+        y_pred = (1 - 2 * y_true) * y_pred
+        y_pred_pos = y_pred - (1 - y_true) * 1e12
+        y_pred_neg = y_pred - y_true * 1e12
+
+        y_pred_pos = torch.cat([y_pred_pos, torch.zeros_like(y_pred_pos[..., :1])], dim=-1)
+        y_pred_neg = torch.cat([y_pred_neg, torch.zeros_like(y_pred_neg[..., :1])], dim=-1)
+        pos_loss = torch.logsumexp(y_pred_pos, dim=-1)
+        neg_loss = torch.logsumexp(y_pred_neg, dim=-1)
+        return (self.GHM(neg_loss + pos_loss, bins=1000)).sum()
+        # return (pos_loss + neg_loss).mean()
 
 
 class GlobalPointerNerDataModule(pl.LightningDataModule):
@@ -32,9 +111,6 @@ class GlobalPointerNerDataModule(pl.LightningDataModule):
         self.label_encode = LabelEncoder()
         self.label_encode.fit(self.get_labels())
         assert self.label_encode.classes_.shape[0]== args.num_labels
-        self.mapij2k = {(i, j): trans_ij2k(args.max_length, i, j) for i in range(args.max_length) for j in
-                        range(args.max_length) if j >= i}
-        self.mapk2ij = {v: k for k, v in self.mapij2k.items()}
         self.cache_path = os.path.join(os.path.dirname(args.train_data), "cache")
         if not os.path.exists(self.cache_path):
             os.makedirs(self.cache_path)
@@ -88,6 +164,8 @@ class GlobalPointerNerDataModule(pl.LightningDataModule):
                             start = answers[0]["answer_start"]
                             end = start + len(answers[0]["text"])
                             labels.append([start, end, "XL", answers[0]["text"]])
+
+
                 yield GlobalPointerNerInputExample(text=context_text,
                                                   labels=labels)
 
@@ -124,10 +202,8 @@ class GlobalPointerNerModule(pl.LightningModule):
         config=GlobalPointerNerConfig.from_pretrained(self.args.bert_model)
         config.num_labels = args.num_labels
         self.model = GlobalPointerNer.from_pretrained(args.bert_model, config=config)
-        self.loss = MultilabelCategoricalCrossentropy()
         self.optimizer = args.optimizer
-        self.metric = NerF1Metric()
-
+        self.loss=MultilabelCategoricalCrossentropy()
         self.save_hyperparameters()
 
     @staticmethod
@@ -136,6 +212,10 @@ class GlobalPointerNerModule(pl.LightningModule):
         model_parser.add_argument("--loss_type", choices=["bce", "dice"], default="bce", help="loss type")
         model_parser.add_argument("--optimizer", choices=["adamw", "sgd"], default="adamw", help="loss type")
         return model_parser
+
+    def setup(self, stage: Optional[str] = None) -> None:
+        label_encode=self.trainer.datamodule.label_encode
+        self.metric=GlobalPointerF1Metric(label_encode=label_encode)
 
     def configure_optimizers(self):
         """Prepare optimizer and learning rate scheduler """
@@ -194,10 +274,15 @@ class GlobalPointerNerModule(pl.LightningModule):
         """forward inputs to BERT models."""
         return self.model(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
 
-    def compute_loss(self, inputs, target):
-        loss = self.loss(inputs, target)
-        return loss
+    def compute_loss(self, logits, targets):
+        bh = logits.shape[0] * logits.shape[1]
+        targets = torch.reshape(targets,(bh, -1))
+        logits = torch.reshape(logits, (bh, -1))
 
+        
+        return self.loss(logits,targets)
+
+    
     def training_step(self, batch, batch_idx):
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
@@ -207,7 +292,7 @@ class GlobalPointerNerModule(pl.LightningModule):
         total_loss = self.compute_loss(logits, label)
 
         self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], prog_bar=True)
-        self.log("train_total_loss", total_loss, prog_bar=True)
+        self.log("train_loss", total_loss, prog_bar=True)
 
         return total_loss
 
@@ -220,16 +305,12 @@ class GlobalPointerNerModule(pl.LightningModule):
         logits = self.forward(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
         total_loss = self.compute_loss(logits, labels)
         self.log("valid_loss", total_loss, prog_bar=True)
-
-        mapk2ij = self.trainer.datamodule.mapk2ij
-        label_encode = self.trainer.datamodule.label_encode
-        self.metric.update(logits, labels, mapk2ij, label_encode)
+        
+        self.metric.update(logits, labels)
 
     def on_validation_end(self):
-        p, r, f1 = self.metric.compute()
-        print(f"p={p},r={r},f1={f1}")
-
-
+        p,r,f1=self.metric.compute()
+        
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="train tplinker ner model")
     parser.add_argument("--output_dir", type=str, default="./output_dir/", help="")

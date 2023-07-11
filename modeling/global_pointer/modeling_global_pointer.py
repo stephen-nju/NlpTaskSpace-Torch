@@ -164,7 +164,7 @@ class GlobalPointerNer(BertPreTrainedModel):
         self.bert = BertModel(config, add_pooling_layer=False)
         
         self.global_pointer = GlobalPointer(
-            self.num_labels,
+            config.num_labels,
             config.head_size,
             config.hidden_size
         )

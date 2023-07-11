@@ -35,6 +35,7 @@ class MultilabelCategoricalCrossentropy(nn.Module):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.last_weights=None
+
     def GHM(self, gradient, bins=10, beta=0.9):
         """
         gradient_norm: gradient_norms of all examples in this batch; (batch_size, shaking_seq_len)
@@ -214,16 +215,39 @@ class TplinkerPlusNerModule(pl.LightningModule):
     def configure_optimizers(self):
         """Prepare optimizer and learning rate scheduler """
         no_decay = ["bias", "LayerNorm.weight"]
+        bert_param=[]
+        handshaking_param=[]
+        for name,param in self.model.named_parameters():
+            space=name.split(".")
+            if space[0]=="bert":
+                bert_param.append((name,param))
+            else:
+                handshaking_param.append((name,param))
+        
         optimizer_grouped_parameters = [
                 {
-                        "params"      : [p for n, p in self.model.named_parameters() if
+                        "params"      : [p for n, p in bert_param if
                                          not any(nd in n for nd in no_decay)],
                         "weight_decay": self.args.weight_decay,
+                        "lr":self.args.lr,
                 },
                 {
-                        "params"      : [p for n, p in self.model.named_parameters() if
+                        "params"      : [p for n, p in bert_param if
+                                         not any(nd in n for nd in no_decay)],
+                        "weight_decay": self.args.weight_decay,
+                        "lr":self.args.lr
+                },
+                {
+                        "params"      : [p for n, p in handshaking_param if
+                                         not any(nd in n for nd in no_decay)],
+                        "weight_decay": self.args.weight_decay,
+                        "lr":self.args.handshaking_lr,
+                },
+                {
+                        "params"      : [p for n, p in handshaking_param if
                                          any(nd in n for nd in no_decay)],
                         "weight_decay": 0.0,
+                        "lr":self.args.handshaking_lr
                 },
         ]
 
@@ -317,6 +341,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=8, help="batch size")
     parser.add_argument("--max_length", type=int, default=64, help="max input sequence length")
     parser.add_argument("--lr", type=float, default=2e-5, help="learning rate")
+    parser.add_argument("--handshaking_lr", type=float, default=2e-3, help="learning rate of handshaking,if using lstm encoding")
     parser.add_argument("--num_labels", type=int, help="number of entity type")
     parser.add_argument("--lr_scheduler", choices=["linear", "onecycle", "polydecay"], default="onecycle")
     parser.add_argument("--workers", type=int, default=0, help="num workers for dataloader")

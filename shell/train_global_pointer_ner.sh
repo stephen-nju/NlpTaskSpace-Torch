@@ -17,7 +17,7 @@ export TOKENIZERS_PARALLELISM=false
 # 本地测试脚本
 
 # 模型训练收敛极其慢，该数据集上loss的量级要达到10-3级才开始收敛
-python3 task_compose/tplinker_plus_ner/task_tplinker_plus_ner_train.py \
+python3 task_compose/global_pointer/task_global_pointer_ner_train.py \
 --output_dir=/home/nlpbigdata/local_disk/output \
 --accelerator=gpu \
 --devices=4 \
