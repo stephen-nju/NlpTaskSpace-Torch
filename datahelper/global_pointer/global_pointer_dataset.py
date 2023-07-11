@@ -37,8 +37,7 @@ def convert_single_example(example, tokenizer, label_encode, max_length):
     attention_mask = encode_inputs.attention_mask
     # 重新计算每个entiy的start，end位置
 
-    pair_length = max_length * (max_length + 1) // 2
-    label_matrix = np.zeros(shape=(pair_length, len(label_encode.classes_)), dtype=int)
+    label_matrix = np.zeros(shape=(len(label_encode.classes_),max_length,max_length), dtype=int)
     for (start, end, label, entity) in labels:
         # 这里由于是单条数据，利用offsets_mapping 需要跳过特殊字符
         # 还需要注意子词的切分offsets的含义表示该token在原始数据中（start,end）
@@ -69,8 +68,7 @@ def convert_single_example(example, tokenizer, label_encode, max_length):
         end_position = token_end_index + 1
         label_id = label_encode.transform([label])[0]
         if start_position <= end_position:
-            index = trans_ij2k(max_length, start_position, end_position)
-            label_matrix[index, label_id] = 1
+            label_matrix[label_id,start_position,end_position] = 1
         else:
             print(f"error compute start ,end position= {start_position},{end_position}")
             continue
