@@ -198,11 +198,12 @@ class TplinkerPlusNerModule(pl.LightningModule):
         self.args = args
         config = TplinkerPlusNerConfig.from_pretrained(self.args.bert_model)
         config.num_labels = args.num_labels
+        #需要配置模型状态,预测时候需要设置为false
+        config.training=True
         self.model = TplinkerPlusNer.from_pretrained(args.bert_model, config=config)
         self.loss = MultilabelCategoricalCrossentropy()
         self.optimizer = args.optimizer
         self.metric = NerF1Metric()
-
         self.save_hyperparameters()
 
     @staticmethod
@@ -301,7 +302,8 @@ class TplinkerPlusNerModule(pl.LightningModule):
         attention_mask = batch["attention_mask"]
         token_type_ids = batch["token_type_ids"]
         label = batch["labels"]
-        logits = self.forward(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+        logits,sampled_tok_pair_indices= self.forward(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+        label=label.gather(1,sampled_tok_pair_indices[:,:,None].repeat(1,1,self.args.num_labels))
         total_loss = self.compute_loss(logits, label)
 
         self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], prog_bar=True)

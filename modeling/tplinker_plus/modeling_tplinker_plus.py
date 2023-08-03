@@ -179,9 +179,11 @@ class TplinkerPlusNer(BertPreTrainedModel):
         classifier_dropout = (
                 config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
         )
+        self.tok_pair_sample_rate=config.tok_pair_sample_rate
         self.dropout = nn.Dropout(classifier_dropout)
         self.handshaking_kernel = TplinkerHandshakingKernel(768, shaking_type='cln_plus', inner_enc_type='lstm')
         self.fc = nn.Linear(768, config.num_labels)
+        self.training=config.training
         self.post_init()
 
     def forward(self, input_ids: Tensor, attention_mask: Tensor, token_type_ids: Tensor):
@@ -191,6 +193,25 @@ class TplinkerPlusNer(BertPreTrainedModel):
                 token_type_ids=token_type_ids
         )
         output = bert_outputs[0]  # [btz, seq_len, hdsz]
-        shaking_hiddens = self.handshaking_kernel(output)
+        shaking_hiddens = self.handshaking_kernel(mutput)
+        sampled_tok_pair_indices=None
+        if self.training:
+        # randomly sample segments of token pairs
+            shaking_seq_len = shaking_hiddens.size()[1]
+            segment_len = int(shaking_seq_len * self.tok_pair_sample_rate)
+            seg_num = math.ceil(shaking_seq_len // segment_len)
+            start_ind = torch.randint(seg_num, []) * segment_len
+            end_ind = min(start_ind + segment_len, shaking_seq_len)
+            # sampled_tok_pair_indices: (batch_size, ~segment_len) ~end_ind - start_ind <= segment_len
+            sampled_tok_pair_indices = torch.arange(start_ind, end_ind)[None, :].repeat(shaking_hiddens.size()[0], 1)
+            #             sampled_tok_pair_indices = torch.randint(shaking_seq_len, (shaking_hiddens.size()[0], segment_len))
+            sampled_tok_pair_indices = sampled_tok_pair_indices.to(shaking_hiddens.device)
+            # sampled_tok_pair_indices will tell model what token pairs should be fed into fcs
+            # shaking_hiddens: (batch_size, ~segment_len, hidden_size)
+            shaking_hiddens = shaking_hiddens.gather(1, sampled_tok_pair_indices[:, :, None].repeat(1, 1,shaking_hiddens.size()[-1]))
+        
+        # outputs: (batch_size, segment_len, tag_size) or (batch_size, shaking_seq_len, tag_size)
         output = self.fc(shaking_hiddens)  # [btz, pair_len, tag_size]
+        if self.training:
+            return output,sampled_tok_pair_indices
         return output

@@ -12,3 +12,4 @@ class TplinkerPlusNerConfig(BertConfig):
     """
     def __init__(self, **kwargs):
         super(TplinkerPlusNerConfig, self).__init__(**kwargs)
+        self.tok_pair_sample_rate= kwargs.get("tok_pair_sample_rate", 1)
