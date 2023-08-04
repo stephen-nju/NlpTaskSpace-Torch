@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -183,19 +184,18 @@ class TplinkerPlusNer(BertPreTrainedModel):
         self.dropout = nn.Dropout(classifier_dropout)
         self.handshaking_kernel = TplinkerHandshakingKernel(768, shaking_type='cln_plus', inner_enc_type='lstm')
         self.fc = nn.Linear(768, config.num_labels)
-        self.training=config.training
         self.post_init()
 
-    def forward(self, input_ids: Tensor, attention_mask: Tensor, token_type_ids: Tensor):
+    def forward(self, input_ids: Tensor, attention_mask: Tensor, token_type_ids: Tensor,is_training=True):
         bert_outputs = self.bert(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 token_type_ids=token_type_ids
         )
         output = bert_outputs[0]  # [btz, seq_len, hdsz]
-        shaking_hiddens = self.handshaking_kernel(mutput)
+        shaking_hiddens = self.handshaking_kernel(output)
         sampled_tok_pair_indices=None
-        if self.training:
+        if is_training:
         # randomly sample segments of token pairs
             shaking_seq_len = shaking_hiddens.size()[1]
             segment_len = int(shaking_seq_len * self.tok_pair_sample_rate)
@@ -212,6 +212,6 @@ class TplinkerPlusNer(BertPreTrainedModel):
         
         # outputs: (batch_size, segment_len, tag_size) or (batch_size, shaking_seq_len, tag_size)
         output = self.fc(shaking_hiddens)  # [btz, pair_len, tag_size]
-        if self.training:
+        if is_training:
             return output,sampled_tok_pair_indices
         return output

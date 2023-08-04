@@ -308,9 +308,10 @@ class GlobalPointerNerModule(pl.LightningModule):
         
         self.metric.update(logits, labels)
 
-    def on_validation_end(self):
-        p,r,f1=self.metric.compute()
-        
+    def on_validation_epoch_end(self):
+        p,r,f1=self.metric.compute(self.global_rank)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="train tplinker ner model")
     parser.add_argument("--output_dir", type=str, default="./output_dir/", help="")

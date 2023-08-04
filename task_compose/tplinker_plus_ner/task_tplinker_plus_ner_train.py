@@ -198,8 +198,6 @@ class TplinkerPlusNerModule(pl.LightningModule):
         self.args = args
         config = TplinkerPlusNerConfig.from_pretrained(self.args.bert_model)
         config.num_labels = args.num_labels
-        #需要配置模型状态,预测时候需要设置为false
-        config.training=True
         self.model = TplinkerPlusNer.from_pretrained(args.bert_model, config=config)
         self.loss = MultilabelCategoricalCrossentropy()
         self.optimizer = args.optimizer
@@ -231,18 +229,6 @@ class TplinkerPlusNerModule(pl.LightningModule):
                                          not any(nd in n for nd in no_decay)],
                         "weight_decay": self.args.weight_decay,
                         "lr":self.args.lr,
-                },
-                {
-                        "params"      : [p for n, p in bert_param if
-                                         not any(nd in n for nd in no_decay)],
-                        "weight_decay": self.args.weight_decay,
-                        "lr":self.args.lr
-                },
-                {
-                        "params"      : [p for n, p in handshaking_param if
-                                         not any(nd in n for nd in no_decay)],
-                        "weight_decay": self.args.weight_decay,
-                        "lr":self.args.handshaking_lr,
                 },
                 {
                         "params"      : [p for n, p in handshaking_param if
@@ -289,9 +275,9 @@ class TplinkerPlusNerModule(pl.LightningModule):
             raise ValueError("lr_scheduler does not exist.")
         return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
 
-    def forward(self, input_ids, attention_mask, token_type_ids):
+    def forward(self, input_ids, attention_mask, token_type_ids,is_training=True):
         """forward inputs to BERT models."""
-        return self.model(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+        return self.model(input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,is_training=True)
 
     def compute_loss(self, inputs, target):
         loss = self.loss(inputs, target)
@@ -317,7 +303,7 @@ class TplinkerPlusNerModule(pl.LightningModule):
         attention_mask = batch["attention_mask"]
         token_type_ids = batch["token_type_ids"]
         labels = batch["labels"]
-        logits = self.forward(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
+        logits= self.forward(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids,is_training=False)
         total_loss = self.compute_loss(logits, labels)
         self.log("valid_loss", total_loss, prog_bar=True)
 
