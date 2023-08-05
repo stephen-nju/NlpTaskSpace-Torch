@@ -184,7 +184,7 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
                           )
 
     def val_dataloader(self):
-        return DataLoader(dataset=TplinkerPlusNerDataset(self.train_features),
+        return DataLoader(dataset=TplinkerPlusNerDataset(self.dev_features),
                           batch_size=self.args.batch_size,
                           num_workers=4,
                           pin_memory=True
