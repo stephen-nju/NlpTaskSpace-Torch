@@ -224,18 +224,34 @@ class TplinkerPlusNerModule(pl.LightningModule):
                 handshaking_param.append((name,param))
         
         optimizer_grouped_parameters = [
-                {
-                        "params"      : [p for n, p in bert_param if
-                                         not any(nd in n for nd in no_decay)],
-                        "weight_decay": self.args.weight_decay,
-                        "lr":self.args.lr,
-                },
-                {
-                        "params"      : [p for n, p in handshaking_param if
-                                         any(nd in n for nd in no_decay)],
-                        "weight_decay": 0.0,
-                        "lr":self.args.handshaking_lr
-                },
+            {
+                "params": [
+                    p for n, p in bert_param if not any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": self.args.weight_decay,
+                "lr": self.args.lr,
+            },
+            {
+                "params": [
+                    p for n, p in bert_param if any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": 0.0,
+                "lr": self.args.lr,
+            },
+            {
+                "params": [
+                    p for n, p in handshaking_param if not any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": self.args.weight_decay,
+                "lr": self.args.handshaking_lr,
+            },
+            {
+                "params": [
+                    p for n, p in handshaking_param if any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": 0.0,
+                "lr": self.args.handshaking_lr,
+            },
         ]
 
         if self.optimizer == "adamw":

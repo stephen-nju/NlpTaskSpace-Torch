@@ -192,7 +192,10 @@ class TplinkerPlusNer(BertPreTrainedModel):
                 attention_mask=attention_mask,
                 token_type_ids=token_type_ids
         )
+        
+
         output = bert_outputs[0]  # [btz, seq_len, hdsz]
+
         shaking_hiddens = self.handshaking_kernel(output)
         sampled_tok_pair_indices=None
         if is_training:
@@ -213,5 +216,6 @@ class TplinkerPlusNer(BertPreTrainedModel):
         # outputs: (batch_size, segment_len, tag_size) or (batch_size, shaking_seq_len, tag_size)
         output = self.fc(shaking_hiddens)  # [btz, pair_len, tag_size]
         if is_training:
+           # print(f"output=={output.requires_grad}")
             return output,sampled_tok_pair_indices
         return output

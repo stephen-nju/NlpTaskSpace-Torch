@@ -8,7 +8,7 @@ class NerF1Metric(Metric):
 
     def __init__(self):
 
-        super().__init__(compute_on_step=False)
+        super().__init__()
         self.add_state("true_positives", default=torch.zeros(1), dist_reduce_fx="sum")
         self.add_state("false_positives", default=torch.zeros(1), dist_reduce_fx="sum")
         self.add_state("false_negative", default=torch.zeros(1), dist_reduce_fx="sum")
