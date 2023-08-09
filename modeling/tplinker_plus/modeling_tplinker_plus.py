@@ -190,13 +190,13 @@ class TplinkerPlusNer(BertPreTrainedModel):
         bert_outputs = self.bert(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                token_type_ids=token_type_ids
-        )
-        
+                token_type_ids=token_type_ids,
+                return_dict=True,
+                output_hidden_states=True
+        ).last_hidden_state
 
-        output = bert_outputs[0]  # [btz, seq_len, hdsz]
-
-        shaking_hiddens = self.handshaking_kernel(output)
+        shaking_hiddens = self.handshaking_kernel(bert_outputs)
+        # print(f"output_shape==={bert_outputs.shape}")
         sampled_tok_pair_indices=None
         if is_training:
         # randomly sample segments of token pairs

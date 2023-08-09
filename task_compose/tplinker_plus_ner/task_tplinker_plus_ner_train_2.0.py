@@ -5,6 +5,7 @@ import os
 import pickle
 import torch
 import torch.nn as nn
+from typing import Optional
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data.dataloader import DataLoader
 from transformers import (
@@ -20,7 +21,7 @@ from datahelper.tplinker_plus.tplinker_plus_dataset import (
     TplinkerPlusNerInputExample,
     trans_ij2k,
 )
-from metrics.tplinker_plus_ner.ner_f1 import NerF1Metric
+from metrics.tplinker_plus_ner.ner_f1 import TplinkerNerF1Metric
 from modeling.tplinker_plus.configure_tplinker_plus import TplinkerPlusNerConfig
 from modeling.tplinker_plus.modeling_tplinker_plus import TplinkerPlusNer
 import lightning.pytorch as pl
@@ -55,6 +56,7 @@ class MultilabelCategoricalCrossentropy(nn.Module):
             gradient_norm, 0, 0.9999999
         )  # ensure elements in gradient_norm != 1.
 
+        # print(f"gradient_norm==={gradient_norm.shape}")
         example_sum = torch.flatten(gradient_norm).size()[0]  # N
 
         # calculate weights
@@ -96,17 +98,22 @@ class MultilabelCategoricalCrossentropy(nn.Module):
         y_pred = (1 - 2 * y_true) * y_pred
         y_pred_pos = y_pred - (1 - y_true) * 1e12
         y_pred_neg = y_pred - y_true * 1e12
-
+        # print(f"y_pred==={y_pred.shape}")
+        # print(f"y_pred_pos==={y_pred_pos.shape}")
+        
         y_pred_pos = torch.cat(
-            [y_pred_pos, torch.zeros_like(y_pred_pos[..., :1],requires_grad=True)], dim=-1
+            [y_pred_pos, torch.zeros_like(y_pred_pos[..., :1])], dim=-1
         )
         y_pred_neg = torch.cat(
-            [y_pred_neg, torch.zeros_like(y_pred_neg[..., :1],requires_grad=True)], dim=-1
+            [y_pred_neg, torch.zeros_like(y_pred_neg[..., :1])], dim=-1
         )
         pos_loss = torch.logsumexp(y_pred_pos, dim=-1)
         neg_loss = torch.logsumexp(y_pred_neg, dim=-1)
+
+        # print(f"pos_loss_shape==={pos_loss.shape}")
         return (self.GHM(neg_loss + pos_loss, bins=1000)).sum()
         # return (pos_loss + neg_loss).mean()
+
 
 
 class TplinkerPlusNerDataModule(pl.LightningDataModule):
@@ -163,7 +170,8 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
             data = s["data"]
             name = s["name"]
             example_index = 0
-            for d in data:
+            for index,d in enumerate(data):
+                # if index>100:break
                 context_text = d["context"]
                 labels = []
                 for qa in d["qas"]:
@@ -247,8 +255,12 @@ class TplinkerPlusNerModule(pl.LightningModule):
         self.model = TplinkerPlusNer.from_pretrained(bert_model, config=config)
         self.loss = MultilabelCategoricalCrossentropy()
         self.optimizer = optimizer
-        self.metric = NerF1Metric()
         self.save_hyperparameters()
+
+    
+    def setup(self, stage: Optional[str] = None) -> None:
+        label_encode = self.trainer.datamodule.label_encode
+        self.metric = TplinkerNerF1Metric(label_encode=label_encode)
 
     def configure_optimizers(self):
         """Prepare optimizer and learning rate scheduler"""
@@ -344,9 +356,8 @@ class TplinkerPlusNerModule(pl.LightningModule):
         elif self.lr_scheduler == "cawr":
             # TODO
             step = (len(self.trainer.datamodule.train_dataloader())) // (
-                self.trainer.accumulate_grad_batches * num_gpus + 1
-            )
-
+                self.trainer.accumulate_grad_batches * num_gpus
+            )+1
             scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
                 optimizer, step * self.rewarm_epoch_num, 1
             )
@@ -372,6 +383,7 @@ class TplinkerPlusNerModule(pl.LightningModule):
         attention_mask = batch["attention_mask"]
         token_type_ids = batch["token_type_ids"]
         label = batch["labels"]
+        # print(f"label_shape={label.shape}")
         # logits=self.forward(input_ids=input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids,is_training=False)
         logits, sampled_tok_pair_indices = self.forward(
             input_ids=input_ids,
@@ -401,22 +413,18 @@ class TplinkerPlusNerModule(pl.LightningModule):
         )
         total_loss = self.compute_loss(logits, labels)
         self.log("valid_loss", total_loss, prog_bar=True)
-
-        mapk2ij = self.trainer.datamodule.mapk2ij
-        label_encode = self.trainer.datamodule.label_encode
-        self.metric.update(logits, labels, mapk2ij, label_encode)
+        self.metric.update(logits, labels)
 
     def on_validation_end(self):
-        p, r, f1 = self.metric.compute()
-        print(f"p={p},r={r},f1={f1}")
-
+        mapk2ij = self.trainer.datamodule.mapk2ij
+        p, r, f1 = self.metric.compute(mapk2ij,rank=self.global_rank)
+        print(f"\np={p},r={r},f1={f1}\n")
+        self.metric.reset()
 
 class TplinkerPlusNerLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.bert_model", "data.bert_model")
         parser.link_arguments("model.num_labels", "data.num_labels")
-        # parser.link_arguments("data.batch_size","model.batch_size")
-
 
 def main():
     cli = TplinkerPlusNerLightningCLI(TplinkerPlusNerModule, TplinkerPlusNerDataModule)
