@@ -106,6 +106,10 @@ def report_metric(preds,targets,label_encode,rank):
     fn_ner_strict = 0
 
     for pred,target in zip(preds,targets):
+        # 每一条数据的预测结果
+        # print(f"predict={pred}")
+        # print(f"target={target}")
+        # __import__('pdb').set_trace()
         ## target
         strict_target_list = []
         boundaries_target_list = []
@@ -202,19 +206,21 @@ class TplinkerNerF1Metric(Metric):
             t=[]
             # print(f"targte={targets.shape}")
             for index,pred in enumerate(preds):
-
+                single_p=[]
+                single_t=[]
                 for pair_id, tag_id in zip(*np.where(pred.cpu().numpy() > threshold)):
                     start, end = mapk2ij[pair_id][0], mapk2ij[pair_id][1]
                     label=self.label_encode.inverse_transform([tag_id])
-                    p.append((label[0],start,end))
+                    single_p.append((label[0],start,end))
 
                 for pair_id,tag_id in zip(*np.where(targets[index].cpu().numpy()>0)):
                     start, end = mapk2ij[pair_id][0], mapk2ij[pair_id][1]
                     label=self.label_encode.inverse_transform([tag_id])
-                    t.append((label[0],start,end))
-            
-            ps.append(p)
-            ts.append(t)       
+                    single_t.append((label[0],start,end))
+                p.append(single_p)
+                t.append(single_t)
+            ps.extend(p)
+            ts.extend(t)       
         return report_metric(ps,ts,self.label_encode,rank)       
 
 

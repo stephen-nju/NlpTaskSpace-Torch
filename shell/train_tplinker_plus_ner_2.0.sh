@@ -25,9 +25,9 @@ fit \
 --trainer.precision=32 \
 --trainer.max_epochs=30 \
 --trainer.num_sanity_val_steps=0 \
---data.train_data=/home/zhubin/train_data/query_understand/humanlabel_eval_v1.txt \
+--data.train_data=/home/zhubin/train_data/query_understand/train_data_damo_v2_humnan_optimize_v3.txt \
 --data.dev_data=/home/zhubin/train_data/query_understand/humanlabel_eval_v1.txt \
---data.batch_size=16 \
+--data.batch_size=128 \
 --data.max_length=64 \
 --data.workers=4 \
 --model.loss_type=bce \

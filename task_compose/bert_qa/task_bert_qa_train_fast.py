@@ -222,14 +222,14 @@ class BertQATrainDataModule(pl.LightningDataModule, ABC):
             os.makedirs(self.cache_path)
             
         train_examples = list(self.read_train_data(self.args.train_data))
-        train_features = convert_examples_to_features_pool(examples=self.train_examples,
+        train_features = convert_examples_to_features_pool(examples=train_examples,
                                                         tokenizer=self.tokenizer,
                                                         max_length=self.args.max_seq_length,
                                                         doc_stride=self.args.doc_stride,
                                                         is_training=True)
         
-        val_examples = list(read_train_data(self.args.dev_data))
-        val_features = convert_examples_to_features_pool(examples=self.val_examples,
+        val_examples = list(self.read_train_data(self.args.dev_data))
+        val_features = convert_examples_to_features_pool(examples=val_examples,
                                                         tokenizer=self.tokenizer,
                                                         max_length=self.args.max_seq_length,
                                                         doc_stride=self.args.doc_stride,
@@ -253,7 +253,8 @@ class BertQATrainDataModule(pl.LightningDataModule, ABC):
             data = s["data"]
             name = s["name"]
             example_index = 0
-            for d in data:
+            for index,d in enumerate(data):
+                # if index>100:break
                 context_text = d["context"]
                 for qa in d["qas"]:
                     qa_id = qa["id"]
