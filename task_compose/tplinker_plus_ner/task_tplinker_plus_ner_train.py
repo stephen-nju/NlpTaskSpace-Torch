@@ -224,18 +224,34 @@ class TplinkerPlusNerModule(pl.LightningModule):
                 handshaking_param.append((name,param))
         
         optimizer_grouped_parameters = [
-                {
-                        "params"      : [p for n, p in bert_param if
-                                         not any(nd in n for nd in no_decay)],
-                        "weight_decay": self.args.weight_decay,
-                        "lr":self.args.lr,
-                },
-                {
-                        "params"      : [p for n, p in handshaking_param if
-                                         any(nd in n for nd in no_decay)],
-                        "weight_decay": 0.0,
-                        "lr":self.args.handshaking_lr
-                },
+            {
+                "params": [
+                    p for n, p in bert_param if not any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": self.args.weight_decay,
+                "lr": self.args.lr,
+            },
+            {
+                "params": [
+                    p for n, p in bert_param if any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": 0.0,
+                "lr": self.args.lr,
+            },
+            {
+                "params": [
+                    p for n, p in handshaking_param if not any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": self.args.weight_decay,
+                "lr": self.args.handshaking_lr,
+            },
+            {
+                "params": [
+                    p for n, p in handshaking_param if any(nd in n for nd in no_decay)
+                ],
+                "weight_decay": 0.0,
+                "lr": self.args.handshaking_lr,
+            },
         ]
 
         if self.optimizer == "adamw":
@@ -271,6 +287,11 @@ class TplinkerPlusNerModule(pl.LightningModule):
         elif self.args.lr_scheduler == "polydecay":
             scheduler = get_polynomial_decay_schedule_with_warmup(optimizer, warmup_steps, t_total,
                                                                   lr_end=self.args.lr / 4.0)
+        elif self.args.lr_scheduler== "cawr":
+            # TODO
+            step= (len(self.trainer.datamodule.train_dataloader()))//(self.trainer.accumulate_grad_batches*num_gpus+1)
+
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer,step*self.args.rewarm_epoch_num,1)
         else:
             raise ValueError("lr_scheduler does not exist.")
         return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
@@ -298,7 +319,6 @@ class TplinkerPlusNerModule(pl.LightningModule):
         return total_loss
 
     def validation_step(self, batch, batch_idx):
-
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         token_type_ids = batch["token_type_ids"]
@@ -323,15 +343,14 @@ if __name__ == "__main__":
     parser.add_argument("--train_data", type=str, default="", help="train data path")
     parser.add_argument("--test_data", type=str, default="", help="test data path")
     parser.add_argument("--dev_data", type=str, default="", help="dev data path")
-    parser.add_argument("--bert_model", type=str,
-                        default="/home/nlpbigdata/net_disk_project/zhubin/nlpprogram_data_repository/bert_resource/resource/pretrain_models/bert_model",
-                        help="bert config dir")
+    parser.add_argument("--bert_model", type=str,help="bert config dir")
     parser.add_argument("--batch_size", type=int, default=8, help="batch size")
     parser.add_argument("--max_length", type=int, default=64, help="max input sequence length")
     parser.add_argument("--lr", type=float, default=2e-5, help="learning rate")
     parser.add_argument("--handshaking_lr", type=float, default=2e-3, help="learning rate of handshaking,if using lstm encoding")
     parser.add_argument("--num_labels", type=int, help="number of entity type")
-    parser.add_argument("--lr_scheduler", choices=["linear", "onecycle", "polydecay"], default="onecycle")
+    parser.add_argument("--lr_scheduler", choices=["linear", "onecycle", "polydecay","cawr"], default="cawr")
+    parser.add_argument("--rewarm_epoch_num",type=int,help="cawr learning scheduler rewarm epoch num",default=2)
     parser.add_argument("--workers", type=int, default=0, help="num workers for dataloader")
     parser.add_argument("--weight_decay", default=0.01, type=float,
                         help="Weight decay if we apply some.")
@@ -346,6 +365,7 @@ if __name__ == "__main__":
     parser = TplinkerPlusNerModule.add_model_specific_args(parser)
     arg = parser.parse_args()
     model = TplinkerPlusNerModule(arg)
-    trainer = pl.Trainer.from_argparse_args(arg, strategy=DDPStrategy(find_unused_parameters=False))
+
+    trainer = pl.Trainer.from_argparse_args(arg,strategy=DDPStrategy(find_unused_parameters=False))
     datamodule = TplinkerPlusNerDataModule(arg)
     trainer.fit(model, datamodule=datamodule)

@@ -181,7 +181,7 @@ def report_metric(preds,targets,label_encode,rank):
 class GlobalPointerF1Metric(Metric):
 
     def __init__(self,label_encode):
-        super().__init__(compute_on_step=False)
+        super().__init__()
         self.add_state("preds",[])
         self.add_state("targets",[])
         self.label_encode=label_encode
@@ -194,9 +194,9 @@ class GlobalPointerF1Metric(Metric):
         ps=[]
         ts=[]
         for preds,targets in zip(self.preds,self.targets):
-            p=[]
-            t=[]
             for index,pred in enumerate(preds):
+                p=[]
+                t=[]
                 for label_id,start,end in zip(*np.where(pred.cpu().numpy()>0)):
                     label=self.label_encode.inverse_transform([label_id])
                     p.append((label[0],start,end))
@@ -204,6 +204,7 @@ class GlobalPointerF1Metric(Metric):
                 for label_id,start,end in zip(*np.where(targets[index].cpu().numpy()>0)):
                     label=self.label_encode.inverse_transform([label_id])
                     t.append((label[0],start,end))
+
                 ps.append(p)
                 ts.append(t)
         return report_metric(ps,ts,self.label_encode,rank)       
