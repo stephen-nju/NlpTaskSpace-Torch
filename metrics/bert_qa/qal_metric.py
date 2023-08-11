@@ -899,7 +899,6 @@ def report_metric(input_data,pred_data,convert):
 
         predict= example["predict"]
         for ent in predict:
-
             if len(ent) > 0:
                 ent_name = ent["span"].lower()
                 ent_type = ent["type"]
@@ -929,7 +928,7 @@ def report_metric(input_data,pred_data,convert):
             hard_boundaries[key]["fn"] += len(boundaries_target_list_dict[key]) - len(cur_correct)
 
     print("#sentence: {}, #entity: {}".format(len(data), num_entity))
-
+    
     print_metrics(tp_ner_strict, fp_ner_strict, fn_ner_strict, "NER-strict-hardMatch")
 
     # per type
@@ -964,13 +963,14 @@ def convert_fast_example_pred(input_data:List[QuestionAnswerInputExampleFast],pr
             raise ValueError("error value in question")
         if len(answers)==0:
             continue
+
         answer=answers[0]
         span=answer["text"]
         start=answer["answer_start"]
         output.append({"type":type_name,"start":start,"end":start+len(span),"span":span,"id":ids})
         query_map[query]=output
-
-    print(query_map)
+        
+    # print(query_map)
     
     # __import__('ipdb').set_trace()
      # 处理pred数据
@@ -979,6 +979,7 @@ def convert_fast_example_pred(input_data:List[QuestionAnswerInputExampleFast],pr
         o={"query":q}
         pred=[]
         for gt in gts:
+            # 不评测无结果数据
             qas_id=gt["id"]
             if qas_id in predict_data:
                 span=predict_data[qas_id]
@@ -1019,7 +1020,7 @@ def question_answer_evaluation(
     print(r)
     # print(all_examples)
     # print(all_predictions)
-    report_metric(all_examples,all_results,convert_fast_example_pred)
+    report_metric(all_examples,all_predictions,convert_fast_example_pred)
     return r
 
 
