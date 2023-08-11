@@ -1,0 +1,4 @@
+# python版本
+python=3.7.4
+pytorch=1.8.1
+pytorch_lightning=1.6.5
