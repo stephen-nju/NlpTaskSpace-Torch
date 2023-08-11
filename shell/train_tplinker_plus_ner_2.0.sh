@@ -16,18 +16,18 @@ cd ${PROJECT_PATH}
 export TOKENIZERS_PARALLELISM=false
 # 本地测试脚本
 
-CUDA_VISIABLE_DEVICES=0
+CUDA_VISIABLE_DEVICES=2
 # 模型训练收敛极其慢，该数据集上loss的量级要达到10-3级才开始收敛
-CUDA_VISIABLE_DEVICES=0 python3 task_compose/tplinker_plus_ner/task_tplinker_plus_ner_train_2.0.py \
+python3 task_compose/tplinker_plus_ner/task_tplinker_plus_ner_train_2.0.py \
 fit \
 --trainer.accelerator=gpu \
---trainer.devices=1 \
+--trainer.devices=[2] \
 --trainer.precision=32 \
 --trainer.max_epochs=30 \
 --trainer.num_sanity_val_steps=0 \
---data.train_data=/home/zhubin/train_data/query_understand/train_data_damo_v2_humnan_optimize_v3.txt \
+--data.train_data=/home/zhubin/train_data/query_understand/train_data_damo_v2_humnan_optimize_0810_v4.txt \
 --data.dev_data=/home/zhubin/train_data/query_understand/humanlabel_eval_v1.txt \
---data.batch_size=128 \
+--data.batch_size=64 \
 --data.max_length=64 \
 --data.workers=4 \
 --model.loss_type=bce \
