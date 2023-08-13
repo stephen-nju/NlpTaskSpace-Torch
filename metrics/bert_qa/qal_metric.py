@@ -899,14 +899,13 @@ def report_metric(input_data,pred_data,convert):
 
         predict= example["predict"]
         for ent in predict:
-            if len(ent) > 0:
-                ent_name = ent["span"].lower()
-                ent_type = ent["type"]
-                if ent_type in e_types_list:
-                    strict_predict_list.append([ent_type, ent_name])
-                    boundaries_predict_list.append(ent_name)
-            # per type
-                    boundaries_predict_list_dict[ent_type].append(ent_name)
+            ent_name = ent["span"].lower()
+            ent_type = ent["type"]
+            if ent_type in e_types_list:
+                strict_predict_list.append([ent_type, ent_name])
+                boundaries_predict_list.append(ent_name)
+        # per type
+                boundaries_predict_list_dict[ent_type].append(ent_name)
 
             ## hard-match
         strict_correct_list = get_correct_list_from_response_list(strict_target_list, strict_predict_list)
@@ -929,13 +928,14 @@ def report_metric(input_data,pred_data,convert):
 
     print("#sentence: {}, #entity: {}".format(len(data), num_entity))
     
-    print_metrics(tp_ner_strict, fp_ner_strict, fn_ner_strict, "NER-strict-hardMatch")
+    p,r,f1=print_metrics(tp_ner_strict, fp_ner_strict, fn_ner_strict, "NER-strict-hardMatch")
 
     # per type
     for key in e_types_list:
         print_metrics(hard_boundaries[key]["tp"], hard_boundaries[key]["fp"], hard_boundaries[key]["fn"],
         f"Ner-strict-hardmatch-{key}")
-
+    
+    return f1
 
 def convert_fast_example_pred(input_data:List[QuestionAnswerInputExampleFast],predict_data:collections.OrderedDict):
     output_data={"name":"predict","total_data":len(input_data)}
@@ -962,6 +962,9 @@ def convert_fast_example_pred(input_data:List[QuestionAnswerInputExampleFast],pr
         else:
             raise ValueError("error value in question")
         if len(answers)==0:
+          #无答案的数据不参与计算
+            query_map[query]=output
+            # 直接设置为空
             continue
 
         answer=answers[0]
@@ -1020,8 +1023,7 @@ def question_answer_evaluation(
     print(r)
     # print(all_examples)
     # print(all_predictions)
-    report_metric(all_examples,all_predictions,convert_fast_example_pred)
-    return r
+    return report_metric(all_examples,all_predictions,convert_fast_example_pred)
 
 
 class QuestionAnswerMetric(Metric):
@@ -1045,7 +1047,7 @@ class QuestionAnswerMetric(Metric):
                 QuestionAnswerOutputResult(unique_id=int(unique_id.detach().cpu()),
                                            start_logits=start.squeeze().detach().cpu().tolist(),
                                            end_logits=end.squeeze().detach().cpu().tolist()))
-        self.evaluation(all_results=all_results)
+        return self.evaluation(all_results=all_results)
 
 
 

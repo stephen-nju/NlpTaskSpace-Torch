@@ -1,3 +1,4 @@
+
 cd $(dirname $0)
 
 #第一次运行需要先安装环境依赖requirements.txt
@@ -19,18 +20,18 @@ export TOKENIZERS_PARALLELISM=false
 CUDA_VISIABLE_DEVICES=2
 # 模型训练收敛极其慢，该数据集上loss的量级要达到10-3级才开始收敛
 python3 task_compose/tplinker_plus_ner/task_tplinker_plus_ner_train_2.0.py \
-fit \
+validate \
+--ckpt_path=/home/zhubin/code/NlpTaskSpace-Torch/lightning_logs/version_4/checkpoints/epoch=29-step=103320.ckpt \
 --trainer.accelerator=gpu \
 --trainer.devices=[2] \
 --trainer.precision=32 \
 --trainer.max_epochs=30 \
 --trainer.num_sanity_val_steps=0 \
---data.train_data=/home/zhubin/train_data/query_understand/train_data_damo_v2_humnan_optimize_0810_v4.txt \
+--data.train_data=/home/zhubin/train_data/query_understand/humanlabel_eval_v1.txt \
 --data.dev_data=/home/zhubin/train_data/query_understand/humanlabel_eval_v1.txt \
 --data.batch_size=64 \
 --data.max_length=64 \
 --data.workers=4 \
---model.loss_type=bce \
 --model.bert_model=/home/zhubin/model/bert_model/ \
 --model.lr=2e-5 \
 --model.handshaking_lr=2e-3 \

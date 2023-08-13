@@ -29,6 +29,7 @@ import torch
 import torch.nn.functional as F
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.strategies import DDPStrategy
 from torch.nn.modules import CrossEntropyLoss, BCEWithLogitsLoss
 from torch.utils.data.dataloader import DataLoader
@@ -575,14 +576,14 @@ class BertForQA(pl.LightningModule, ABC):
         total_loss, start_loss, end_loss = self.compute_loss(
             start_logits, end_logits, start_labels, end_labels, label_mask
         )
-        self.log("eval_total_loss", total_loss, prog_bar=True)
+        self.log("eval_loss", total_loss, prog_bar=True)
         self.qa_metric.update(unique_ids, start_logits, end_logits)
 
     def validation_epoch_end(self, outputs) -> None:
         # 使用多GPU训练的时候需要验证
-        self.qa_metric.compute()
+        f1=self.qa_metric.compute()
         self.qa_metric.reset()
-
+        self.log("f1",f1,on_epoch=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Training")
@@ -609,7 +610,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lr_scheduler",
         choices=["linear", "onecycle", "polydecay"],
-        default="onecycle",
+        default="linear",
     )
     parser.add_argument(
         "--workers", type=int, default=0, help="num workers for dataloader"
@@ -707,12 +708,12 @@ if __name__ == "__main__":
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
 
-    check_point = ModelCheckpoint(dirpath=args.output_dir)
-    # early_stop = EarlyStopping("f1", mode="max", patience=3, min_delta=0.2)
+    check_point = ModelCheckpoint(dirpath=args.output_dir,monitor="f1",mode="max",save_top_k=3)
+    early_stop = EarlyStopping("f1", mode="max", patience=5, min_delta=0.2)
     trainer = Trainer.from_argparse_args(
         parser,
         default_root_dir=args.output_dir,
-        callbacks=[check_point],
+        callbacks=[check_point,early_stop],
         strategy=DDPStrategy(find_unused_parameters=False),
     )
     datamodule = BertQATrainDataModule(args=args)

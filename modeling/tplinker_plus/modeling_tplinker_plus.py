@@ -203,6 +203,7 @@ def upper_reg2seq(ori_tensor):
     :param ori_tensor: (batch_size, matrix_size, matrix_size, hidden_size)
     :return: (batch_size, matrix_size + ... + 1, hidden_size)
     """
+
     tensor = ori_tensor.permute(0, 3, 1, 2).contiguous()
     uppder_ones = (
         torch.ones([tensor.size()[-1], tensor.size()[-1]])

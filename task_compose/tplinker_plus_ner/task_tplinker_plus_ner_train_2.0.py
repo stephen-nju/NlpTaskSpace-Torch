@@ -28,6 +28,7 @@ import lightning.pytorch as pl
 from lightning.pytorch.cli import LightningCLI
 
 
+
 class MultilabelCategoricalCrossentropy(nn.Module):
     """多标签分类的交叉熵
     说明：y_true和y_pred的shape一致，y_true的元素非0即1， 1表示对应的类为目标类，0表示对应的类为非目标类。
@@ -193,6 +194,7 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
                             start = answers[0]["answer_start"]
                             end = start + len(answers[0]["text"])
                             labels.append([start, end, "XL", answers[0]["text"]])
+                
                 yield TplinkerPlusNerInputExample(text=context_text, labels=labels)
 
     def get_labels(self):
@@ -396,8 +398,8 @@ class TplinkerPlusNerModule(pl.LightningModule):
         )
         total_loss = self.compute_loss(logits, label)
         self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], prog_bar=True)
-        self.log("train_total_loss", total_loss, prog_bar=True)
-
+        self.log("train_loss", total_loss, prog_bar=True)
+       
         return total_loss
 
     def validation_step(self, batch, batch_idx):
@@ -413,18 +415,27 @@ class TplinkerPlusNerModule(pl.LightningModule):
         )
         total_loss = self.compute_loss(logits, labels)
         self.log("valid_loss", total_loss, prog_bar=True)
+    
         self.metric.update(logits, labels)
 
-    def on_validation_end(self):
+
+    def  on_validation_epoch_end(self):
+
         mapk2ij = self.trainer.datamodule.mapk2ij
         p, r, f1 = self.metric.compute(mapk2ij,rank=self.global_rank)
+        self.log("f1",f1,on_epoch=True)
+
         print(f"\np={p},r={r},f1={f1}\n")
         self.metric.reset()
+
 
 class TplinkerPlusNerLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.bert_model", "data.bert_model")
         parser.link_arguments("model.num_labels", "data.num_labels")
+
+
+
 
 def main():
     cli = TplinkerPlusNerLightningCLI(TplinkerPlusNerModule, TplinkerPlusNerDataModule)

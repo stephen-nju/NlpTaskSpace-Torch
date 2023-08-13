@@ -143,16 +143,14 @@ def report_metric(preds,targets,label_encode,rank):
                 num_entity += 1
 
         for ent in pred:
-
-            if len(ent) > 0:
-                ent_name=(ent[1],ent[2])
-                # ent_name = ent["span"].lower()
-                ent_type = ent[0]
-                if ent_type in e_types_list:
-                    strict_predict_list.append([ent_type, ent_name])
-                    boundaries_predict_list.append(ent_name)
-                    # per type
-                    boundaries_predict_list_dict[ent_type].append(ent_name)
+            ent_name=(ent[1],ent[2])
+            # ent_name = ent["span"].lower()
+            ent_type = ent[0]
+            if ent_type in e_types_list:
+                strict_predict_list.append([ent_type, ent_name])
+                boundaries_predict_list.append(ent_name)
+                # per type
+                boundaries_predict_list_dict[ent_type].append(ent_name)
 
         ## hard-match
         strict_correct_list = get_correct_list_from_response_list(strict_target_list, strict_predict_list)
