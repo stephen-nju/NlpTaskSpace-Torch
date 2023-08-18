@@ -64,7 +64,7 @@ def get_correct_list_from_response_list(target_list, response_list):
     return res
 
 
-def print_metrics(tp, fp, fn, task):
+def print_metrics(tp, fp, fn, task,rank):
     p, r, f1 = 0.0, 0.0, 0.0
 
     if tp + fp != 0:
@@ -74,16 +74,17 @@ def print_metrics(tp, fp, fn, task):
     if p + r != 0.0:
         f1 = 2.0 * p * r / (p + r)
 
-    print("{}\n| p: {:.4f}, r: {:.4f}, f1: {:.4f} | tp: {:4d}, fp: {:4d}, fn: {:4d}, tp+fn: {:4d}\n".format(
-        task,
-        round(p, 4),
-        round(r, 4),
-        round(f1, 4),
-        tp,
-        fp,
-        fn,
-        tp + fn,
-    ))
+    if rank==0:
+        print("{}\n| p: {:.4f}, r: {:.4f}, f1: {:.4f} | tp: {:4d}, fp: {:4d}, fn: {:4d}, tp+fn: {:4d}\n".format(
+            task,
+            round(p, 4),
+            round(r, 4),
+            round(f1, 4),
+            tp,
+            fp,
+            fn,
+            tp + fn,
+        ))
     return p,r,f1
 
     
@@ -174,11 +175,11 @@ def report_metric(preds,targets,label_encode,rank):
     p,r,f1=None,None,None
     if rank==0:
         print("#sentence: {}, #entity: {}".format(len(targets), num_entity))
-        p,r,f1=print_metrics(tp_ner_strict, fp_ner_strict, fn_ner_strict, "NER-strict-hardMatch")
-        # per type
-        for key in e_types_list:
-            print_metrics(hard_boundaries[key]["tp"], hard_boundaries[key]["fp"], hard_boundaries[key]["fn"],
-                      f"Ner-strict-hardmatch-{key}")
+    p,r,f1=print_metrics(tp_ner_strict, fp_ner_strict, fn_ner_strict, "NER-strict-hardMatch",rank)
+    # per type
+    for key in e_types_list:
+        print_metrics(hard_boundaries[key]["tp"], hard_boundaries[key]["fp"], hard_boundaries[key]["fn"],
+                      f"Ner-strict-hardmatch-{key}",rank)
     return p,r,f1
 
 

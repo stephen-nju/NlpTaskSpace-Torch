@@ -1,18 +1,5 @@
-# -*- coding: utf-8 -*-
-"""
-@author: zhubin
-@email:  18073701@suning.com
-@software: PyCharm
-@file: task_bert_qa.py
-@time: 2021/6/9 19:54
+#------------------- coding=utf-8 -------------
 
-fast主要体现在数据处理,tokenizerfast,解码更方便
-针对中文数据，采用transformers中的最新方式处理中文qa。使用squad脚本的最大问题就是中文的对齐，早期的
-tokenizer代码无法直接解决该问题，所以数据处理脚本非常复杂，好在现在的transformers库(>4.23.1)，
-tokenizer中新增了很多字段，能够解决中文的对齐，所以来重构下代码
-
-
-"""
 import pickle
 import argparse
 import json
@@ -24,40 +11,26 @@ from os import cpu_count
 from typing import Dict, Any, List, Union, Optional
 
 import numpy as np
-import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.strategies import DDPStrategy
 from torch.nn.modules import CrossEntropyLoss, BCEWithLogitsLoss
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 from transformers import (
-    AdamW,
     get_linear_schedule_with_warmup,
     get_polynomial_decay_schedule_with_warmup,
 )
 from transformers import BertTokenizerFast
 
-from datahelper.bert_qa.bert_qa_dataset import (
-    QuestionAnswerDataset,
-    QuestionAnswerInputExampleFast,
-    QuestionAnswerInputFeaturesFast,
-)
 from loss.dice_loss import DiceLoss
 from loss.focal_loss import FocalLoss
 from metrics.bert_qa.qal_metric import QuestionAnswerMetric, question_answer_evaluation
-from modeling.bert_qa.configure_bert_qa import BertForQAConfig
-from modeling.bert_qa.modeling_bert_qa import BertForQuestionAnswering
+from modeling.kbert.modeling_kbert import KBertForQuestionAnswering
+from modeling.kbert.configuration_kbert import KBertConfig
+from modeling.kbert.tokenization_kbert_fast import KBertTokenizerFast
 
-# 设置随机种子
-seed_everything(42)
-"""
-文本处理中的两个问题：1.长文本（需要指定return_overflowing_tokens和stride，用于窗口滑动整个文档），
-2：文本对齐（需要指定return_offsets_mapping，用于后处理找到答案位置）
-"""
+import lightning as pl
+from lightning.pytorch.cli import LightningCLI
 
 
 def convert_example_to_features_fast(
@@ -230,17 +203,17 @@ def convert_examples_to_features_pool(
                 unique_id += 1
 
         features = new_features
-
         return features
 
 
-class BertQATrainDataModule(pl.LightningDataModule, ABC):
+
+class KbertNerDataModule(pl.LightningDataModule):
     def __init__(self, args):
         assert isinstance(args, argparse.Namespace)
         self.args = args
         self.cache_path = os.path.join(os.path.dirname(args.train_data), "cache")
         self.tokenizer = BertTokenizerFast.from_pretrained(args.bert_config_dir)
-        super(BertQATrainDataModule, self).__init__()
+        super(KbertNerDataModule, self).__init__()
 
     def prepare_data(self):
         if not os.path.exists(self.cache_path):
@@ -263,6 +236,7 @@ class BertQATrainDataModule(pl.LightningDataModule, ABC):
             doc_stride=self.args.doc_stride,
             is_training=False,
         )
+
         with open(os.path.join(self.cache_path, "train_features.pkl"), "wb") as g:
             pickle.dump(train_features, g)
 
@@ -342,15 +316,15 @@ class BertQATrainDataModule(pl.LightningDataModule, ABC):
         )
 
 
-class BertForQA(pl.LightningModule, ABC):
+class KbertQANerModule(pl.LightningModule):
     def __init__(self, args: argparse.Namespace):
         super().__init__()
         self.args = args
-        bert_config = BertForQAConfig.from_pretrained(self.args.bert_config_dir)
-        self.model = BertForQuestionAnswering.from_pretrained(
+        bert_config = KBertConfig.from_pretrained(self.args.bert_config_dir)
+        self.model = KBertForQuestionAnswering.from_pretrained(
             self.args.bert_config_dir, config=bert_config
         )
-        self.tokenizer = BertTokenizerFast.from_pretrained(args.bert_config_dir)
+        self.tokenizer = KBertTokenizerFast.from_pretrained(args.bert_config_dir)
         self.loss_type = self.args.loss_type
         if self.loss_type == "bce":
             self.bce_loss = BCEWithLogitsLoss(reduction="none")
@@ -358,6 +332,7 @@ class BertForQA(pl.LightningModule, ABC):
             self.dice_loss = DiceLoss(with_logits=True, smooth=self.args.dice_smooth)
         self.optimizer = self.args.optimizer
         self.save_hyperparameters()
+
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -369,6 +344,8 @@ class BertForQA(pl.LightningModule, ABC):
             "--optimizer", choices=["adamw", "sgd"], default="adamw", help="loss type"
         )
         return model_parser
+
+
 
     def configure_optimizers(self):
         """Prepare optimizer and learning rate scheduler"""
@@ -585,137 +562,11 @@ class BertForQA(pl.LightningModule, ABC):
         self.qa_metric.reset()
         self.log("f1",f1,on_epoch=True)
 
+
+
+def main():
+    cli=LightningCLI(KbertQANerModule,KbertNerDataModule)
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Training")
-
-    parser.add_argument("--output_dir", type=str, default="./output_dir/", help="")
-
-    parser.add_argument("--train_data", type=str, default="", help="train data path")
-    parser.add_argument("--test_data", type=str, default="", help="test data path")
-    parser.add_argument("--dev_data", type=str, default="", help="dev data path")
-    parser.add_argument(
-        "--bert_config_dir", type=str, default="", help="bert config dir"
-    )
-    parser.add_argument(
-        "--pretrained_checkpoint",
-        default="",
-        type=str,
-        help="pretrained checkpoint path",
-    )
-    parser.add_argument(
-        "--max_length", type=int, default=128, help="max length of dataset"
-    )
-    parser.add_argument("--batch_size", type=int, default=8, help="batch size")
-    parser.add_argument("--lr", type=float, default=2e-5, help="learning rate")
-    parser.add_argument(
-        "--lr_scheduler",
-        choices=["linear", "onecycle", "polydecay"],
-        default="onecycle",
-    )
-    parser.add_argument(
-        "--workers", type=int, default=0, help="num workers for dataloader"
-    )
-    parser.add_argument(
-        "--weight_decay",
-        default=0.01,
-        type=float,
-        help="Weight decay if we apply some.",
-    )
-    parser.add_argument(
-        "--warmup_proportion",
-        default=0.1,
-        type=int,
-        help="warmup steps used for scheduler.",
-    )
-    parser.add_argument(
-        "--adam_epsilon", default=1e-8, type=float, help="Epsilon for Adam optimizer."
-    )
-    parser.add_argument(
-        "--final_div_factor",
-        type=float,
-        default=1e4,
-        help="final div factor of linear decay scheduler",
-    )
-    ## dice loss
-    parser.add_argument(
-        "--dice_smooth", type=float, default=1e-4, help="smooth value of dice loss"
-    )
-    parser.add_argument(
-        "--dice_ohem", type=float, default=0.0, help="ohem ratio of dice loss"
-    )
-    parser.add_argument(
-        "--dice_alpha",
-        type=float,
-        default=0.01,
-        help="alpha value of adaptive dice loss",
-    )
-    parser.add_argument(
-        "--dice_square", action="store_true", help="use square for dice loss"
-    )
-    ## focal loss
-    parser.add_argument(
-        "--focal_gamma", type=float, default=2, help="gamma for focal loss."
-    )
-    parser.add_argument("--focal_alpha", type=float, help="alpha for focal loss.")
-
-    parser.add_argument(
-        "--max_query_length",
-        type=int,
-        default=64,
-        help="The maximum number of tokens for the question. "
-        "Questions longer than this will be truncated to this length.",
-    )
-    # 用于处理
-    parser.add_argument(
-        "--max_seq_length",
-        type=int,
-        default=128,
-        help="The maximum total input sequence length after WordPiece tokenization. "
-        "Sequences longer than this will be truncated, "
-        "and sequences shorter than this will be padded.",
-    )
-    parser.add_argument(
-        "--doc_stride",
-        type=int,
-        default=512,
-        help="When splitting up a long document into chunks,"
-        " how much stride to take between chunks.",
-    )
-
-    parser.add_argument(
-        "--with_negative",
-        action="store_true",
-        help="If true, the examples contain some that do not have an answer.",
-    )
-    parser.add_argument(
-        "--n_best_size",
-        default=5,
-        type=int,
-        help="The total number of n-best predictions to generate in the nbest_"
-        "predictions.json output file.",
-    )
-    parser.add_argument(
-        "--max_answer_length",
-        default=10,
-        type=int,
-        help="The maximum length of an answer that can be generated."
-        " This is needed because the start "
-        "and end predictions are not conditioned on one another.",
-    )
-
-    parser = BertForQA.add_model_specific_args(parser)
-
-    parser = Trainer.add_argparse_args(parser)
-    args = parser.parse_args()
-
-    check_point = ModelCheckpoint(dirpath=args.output_dir,monitor="f1",mode="max",save_top_k=1)
-    early_stop = EarlyStopping("f1", mode="max", patience=5)
-    trainer = Trainer.from_argparse_args(
-        parser,
-        default_root_dir=args.output_dir,
-        callbacks=[check_point,early_stop],
-        strategy=DDPStrategy(find_unused_parameters=False),
-    )
-    datamodule = BertQATrainDataModule(args=args)
-    model = BertForQA(args)
-    trainer.fit(model, datamodule=datamodule)
+    

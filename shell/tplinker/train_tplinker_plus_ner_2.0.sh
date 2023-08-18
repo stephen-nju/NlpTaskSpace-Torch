@@ -21,16 +21,16 @@ CUDA_VISIABLE_DEVICES=2
 python3 task_compose/tplinker_plus_ner/task_tplinker_plus_ner_train_2.0.py \
 fit \
 --trainer.accelerator=gpu \
---trainer.devices=[2] \
+--trainer.devices=[0,2] \
 --trainer.precision=32 \
---trainer.max_epochs=30 \
---trainer.callbacks+=EarlyStopping \
---trainer.callbacks.patience=5 \
---trainer.callbacks.monitor=train_loss \
---trainer.callbacks.mode=min \
+--trainer.max_epochs=50 \
 --trainer.callbacks+=ModelCheckpoint \
 --trainer.callbacks.monitor=f1 \
---trainer.callbacks.save_top_k=3 \
+--trainer.callbacks.save_top_k=1 \
+--trainer.callbacks.mode=max \
+--trainer.callbacks+=EarlyStopping \
+--trainer.callbacks.patience=5 \
+--trainer.callbacks.monitor=f1 \
 --trainer.callbacks.mode=max \
 --trainer.num_sanity_val_steps=0 \
 --data.train_data=/home/zhubin/train_data/query_understand/train_data_damo_v2_humnan_optimize_0810_v4.txt \
@@ -44,8 +44,12 @@ fit \
 --model.handshaking_lr=2e-3 \
 --model.optimizer=adamw \
 --model.lr_scheduler=cawr \
---model.rewarm_epoch_num=2 \
+--model.rewarm_epoch_num=5 \
 --model.weight_decay=1e-2 \
 --model.warmup_proportion=0.1 \
 --model.adam_epsilon=1e-8 \
 --model.num_labels=3
+
+
+
+

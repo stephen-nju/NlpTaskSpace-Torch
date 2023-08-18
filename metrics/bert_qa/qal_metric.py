@@ -225,7 +225,7 @@ def squad_evaluate(examples, preds, no_answer_probs=None, no_answer_probability_
         merge_eval(evaluation, no_ans_eval, "NoAns")
 
     if no_answer_probs:
-        find_all_best_thresh(evaluation, preds, exact, f1, no_answer_probs, qas_id_to_has_answer)
+        find_all_best_thresh_v2(evaluation, preds, exact, f1, no_answer_probs, qas_id_to_has_answer)
 
     return evaluation
 
@@ -371,6 +371,11 @@ def compute_predictions_logits(
     null_score_diff_threshold,
     tokenizer,
 ):
+    # null_score_diff_threshold 每个结果有一个拒识的logits,有一个最佳span的logits 
+    # 如果拒识logits减去最佳span的logits >null_score_diff_threshold 就拒识，否则保留
+    # null_score_diff_threshold 一般为0，如果null_score_diff_threshold <0,相当于降低拒识的条件，越容易拒识
+
+    
     example_index_to_features = collections.defaultdict(list)
     for feature in all_features:
         example_index_to_features[feature.example_index].append(feature)

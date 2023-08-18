@@ -5,7 +5,7 @@ import os
 import pickle
 import torch
 import torch.nn as nn
-from typing import Optional
+from typing import Optional,Dict,Any
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data.dataloader import DataLoader
 from transformers import (
@@ -397,8 +397,8 @@ class TplinkerPlusNerModule(pl.LightningModule):
             1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.num_labels)
         )
         total_loss = self.compute_loss(logits, label)
-        self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], prog_bar=True)
-        self.log("train_loss", total_loss, prog_bar=True)
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], prog_bar=True,sync_dist=True)
+        self.log("train_loss", total_loss, prog_bar=True,sync_dist=True)
        
         return total_loss
 
@@ -414,26 +414,29 @@ class TplinkerPlusNerModule(pl.LightningModule):
             is_training=False,
         )
         total_loss = self.compute_loss(logits, labels)
-        self.log("valid_loss", total_loss, prog_bar=True)
+        self.log("valid_loss", total_loss, prog_bar=True,sync_dist=True)
     
         self.metric.update(logits, labels)
 
-
     def  on_validation_epoch_end(self):
-
         mapk2ij = self.trainer.datamodule.mapk2ij
         p, r, f1 = self.metric.compute(mapk2ij,rank=self.global_rank)
-        self.log("f1",f1,on_epoch=True)
+        self.log("f1",f1,on_epoch=True,sync_dist=True)
 
         print(f"\np={p},r={r},f1={f1}\n")
         self.metric.reset()
+    
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        if self.global_rank == 0:
+            save_path = os.path.join(self.trainer.default_root_dir, "saved_model")
+            self.model.save_pretrained(save_path)
+            self.trainer.datamodule.tokenizer.save_pretrained(save_path)
 
 
 class TplinkerPlusNerLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.bert_model", "data.bert_model")
         parser.link_arguments("model.num_labels", "data.num_labels")
-
 
 
 
