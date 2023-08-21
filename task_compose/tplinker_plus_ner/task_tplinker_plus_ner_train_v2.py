@@ -1,19 +1,20 @@
 # -----*----coding:utf8-----*----
-import argparse
 import json
 import os
 import pickle
+from typing import Optional, Dict, Any
+
+import lightning.pytorch as pl
 import torch
 import torch.nn as nn
-from typing import Optional,Dict,Any
+from lightning.pytorch.cli import LightningCLI
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data.dataloader import DataLoader
+from transformers import BertTokenizerFast
 from transformers import (
-    AdamW,
     get_linear_schedule_with_warmup,
     get_polynomial_decay_schedule_with_warmup,
 )
-from transformers import BertTokenizerFast
 
 from datahelper.tplinker_plus.tplinker_plus_dataset import (
     convert_examples_to_features,
@@ -24,9 +25,6 @@ from datahelper.tplinker_plus.tplinker_plus_dataset import (
 from metrics.tplinker_plus_ner.ner_f1 import TplinkerNerF1Metric
 from modeling.tplinker_plus.configure_tplinker_plus import TplinkerPlusNerConfig
 from modeling.tplinker_plus.modeling_tplinker_plus import TplinkerPlusNer
-import lightning.pytorch as pl
-from lightning.pytorch.cli import LightningCLI
-
 
 
 class MultilabelCategoricalCrossentropy(nn.Module):
@@ -48,13 +46,13 @@ class MultilabelCategoricalCrossentropy(nn.Module):
         avg = torch.mean(gradient)
         std = torch.std(gradient) + 1e-12
         gradient_norm = torch.sigmoid(
-            (gradient - avg) / std
+                (gradient - avg) / std
         )  # normalization and pass through sigmoid to 0 ~ 1.
 
         min_, max_ = torch.min(gradient_norm), torch.max(gradient_norm)
         gradient_norm = (gradient_norm - min_) / (max_ - min_)
         gradient_norm = torch.clamp(
-            gradient_norm, 0, 0.9999999
+                gradient_norm, 0, 0.9999999
         )  # ensure elements in gradient_norm != 1.
 
         # print(f"gradient_norm==={gradient_norm.shape}")
@@ -83,7 +81,7 @@ class MultilabelCategoricalCrossentropy(nn.Module):
         # weights4examples: pick weights for all examples
         weight_pk_idx = (gradient_norm / (1 / bins)).long()[:, :, None]
         weights_rp = current_weights[None, None, :].repeat(
-            gradient_norm.size()[0], gradient_norm.size()[1], 1
+                gradient_norm.size()[0], gradient_norm.size()[1], 1
         )
         weights4examples = torch.gather(weights_rp, -1, weight_pk_idx).squeeze(-1)
         weights4examples /= torch.sum(weights4examples)
@@ -101,12 +99,12 @@ class MultilabelCategoricalCrossentropy(nn.Module):
         y_pred_neg = y_pred - y_true * 1e12
         # print(f"y_pred==={y_pred.shape}")
         # print(f"y_pred_pos==={y_pred_pos.shape}")
-        
+
         y_pred_pos = torch.cat(
-            [y_pred_pos, torch.zeros_like(y_pred_pos[..., :1])], dim=-1
+                [y_pred_pos, torch.zeros_like(y_pred_pos[..., :1])], dim=-1
         )
         y_pred_neg = torch.cat(
-            [y_pred_neg, torch.zeros_like(y_pred_neg[..., :1])], dim=-1
+                [y_pred_neg, torch.zeros_like(y_pred_neg[..., :1])], dim=-1
         )
         pos_loss = torch.logsumexp(y_pred_pos, dim=-1)
         neg_loss = torch.logsumexp(y_pred_neg, dim=-1)
@@ -116,21 +114,20 @@ class MultilabelCategoricalCrossentropy(nn.Module):
         # return (pos_loss + neg_loss).mean()
 
 
-
 class TplinkerPlusNerDataModule(pl.LightningDataModule):
     def __init__(
-        self, train_data, dev_data, max_length, batch_size, bert_model, num_labels,workers
+            self, train_data, dev_data, max_length, batch_size, bert_model, num_labels, workers
     ) -> None:
-    
+
         self.tokenizer = BertTokenizerFast.from_pretrained(bert_model)
         self.label_encode = LabelEncoder()
         self.label_encode.fit(self.get_labels())
         assert self.label_encode.classes_.shape[0] == num_labels
         self.mapij2k = {
-            (i, j): trans_ij2k(max_length, i, j)
-            for i in range(max_length)
-            for j in range(max_length)
-            if j >= i
+                (i, j): trans_ij2k(max_length, i, j)
+                for i in range(max_length)
+                for j in range(max_length)
+                if j >= i
         }
         self.mapk2ij = {v: k for k, v in self.mapij2k.items()}
         self.cache_path = os.path.join(os.path.dirname(train_data), "cache")
@@ -140,26 +137,26 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
         self.dev_data = dev_data
         self.max_length = max_length
         self.batch_size = batch_size
-        self.workers=workers
+        self.workers = workers
         super().__init__()
 
     def prepare_data(self):
         train_examples = list(self.read_train_data(self.train_data))
         train_features = convert_examples_to_features(
-            examples=train_examples,
-            tokenizer=self.tokenizer,
-            label_encode=self.label_encode,
-            max_length=self.max_length,
+                examples=train_examples,
+                tokenizer=self.tokenizer,
+                label_encode=self.label_encode,
+                max_length=self.max_length,
         )
         with open(os.path.join(self.cache_path, "train_feature.pkl"), "wb") as g:
             pickle.dump(train_features, g)
 
         dev_examples = list(self.read_train_data(self.dev_data))
         dev_features = convert_examples_to_features(
-            examples=dev_examples,
-            tokenizer=self.tokenizer,
-            label_encode=self.label_encode,
-            max_length=self.max_length,
+                examples=dev_examples,
+                tokenizer=self.tokenizer,
+                label_encode=self.label_encode,
+                max_length=self.max_length,
         )
         with open(os.path.join(self.cache_path, "dev_feature.pkl"), "wb") as g:
             pickle.dump(dev_features, g)
@@ -171,7 +168,7 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
             data = s["data"]
             name = s["name"]
             example_index = 0
-            for index,d in enumerate(data):
+            for index, d in enumerate(data):
                 # if index>100:break
                 context_text = d["context"]
                 labels = []
@@ -194,7 +191,7 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
                             start = answers[0]["answer_start"]
                             end = start + len(answers[0]["text"])
                             labels.append([start, end, "XL", answers[0]["text"]])
-                
+
                 yield TplinkerPlusNerInputExample(text=context_text, labels=labels)
 
     def get_labels(self):
@@ -209,41 +206,41 @@ class TplinkerPlusNerDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            dataset=TplinkerPlusNerDataset(self.train_features),
-            batch_size=self.batch_size,
-            num_workers=4,
-            pin_memory=True,
+                dataset=TplinkerPlusNerDataset(self.train_features),
+                batch_size=self.batch_size,
+                num_workers=4,
+                pin_memory=True,
         )
 
     def val_dataloader(self):
         return DataLoader(
-            dataset=TplinkerPlusNerDataset(self.dev_features),
-            batch_size=self.batch_size,
-            num_workers=4,
-            pin_memory=True,
+                dataset=TplinkerPlusNerDataset(self.dev_features),
+                batch_size=self.batch_size,
+                num_workers=4,
+                pin_memory=True,
         )
 
 
 class TplinkerPlusNerModule(pl.LightningModule):
     def __init__(
-        self,
-        bert_model,
-        num_labels,
-        loss_type,
-        optimizer,
-        lr,
-        handshaking_lr,
-        lr_scheduler,
-        weight_decay,
-        adam_epsilon,
-        warmup_proportion,
-        final_div_factor,
-        rewarm_epoch_num,
+            self,
+            bert_model,
+            num_labels,
+            loss_type,
+            optimizer,
+            lr,
+            handshaking_lr,
+            lr_scheduler,
+            weight_decay,
+            adam_epsilon,
+            warmup_proportion,
+            final_div_factor,
+            rewarm_epoch_num,
     ):
         super().__init__()
-        
-        self.num_labels=num_labels
-        self.lr_scheduler=lr_scheduler
+
+        self.num_labels = num_labels
+        self.lr_scheduler = lr_scheduler
         self.lr = lr
         self.handshaking_lr = handshaking_lr
         self.adam_epsilon = adam_epsilon
@@ -259,7 +256,6 @@ class TplinkerPlusNerModule(pl.LightningModule):
         self.optimizer = optimizer
         self.save_hyperparameters()
 
-    
     def setup(self, stage: Optional[str] = None) -> None:
         label_encode = self.trainer.datamodule.label_encode
         self.metric = TplinkerNerF1Metric(label_encode=label_encode)
@@ -278,90 +274,90 @@ class TplinkerPlusNerModule(pl.LightningModule):
                 handshaking_param.append((name, param))
 
         optimizer_grouped_parameters = [
-            {
-                "params": [
-                    p for n, p in bert_param if not any(nd in n for nd in no_decay)
-                ],
-                "weight_decay": self.weight_decay,
-                "lr": self.lr,
-            },
-            {
-                "params": [
-                    p for n, p in bert_param if any(nd in n for nd in no_decay)
-                ],
-                "weight_decay": 0.0,
-                "lr": self.lr,
-            },
-            {
-                "params": [
-                    p for n, p in handshaking_param if not any(nd in n for nd in no_decay)
-                ],
-                "weight_decay": self.weight_decay,
-                "lr": self.handshaking_lr,
-            },
-            {
-                "params": [
-                    p for n, p in handshaking_param if any(nd in n for nd in no_decay)
-                ],
-                "weight_decay": 0.0,
-                "lr": self.handshaking_lr,
-            },
+                {
+                        "params"      : [
+                                p for n, p in bert_param if not any(nd in n for nd in no_decay)
+                        ],
+                        "weight_decay": self.weight_decay,
+                        "lr"          : self.lr,
+                },
+                {
+                        "params"      : [
+                                p for n, p in bert_param if any(nd in n for nd in no_decay)
+                        ],
+                        "weight_decay": 0.0,
+                        "lr"          : self.lr,
+                },
+                {
+                        "params"      : [
+                                p for n, p in handshaking_param if not any(nd in n for nd in no_decay)
+                        ],
+                        "weight_decay": self.weight_decay,
+                        "lr"          : self.handshaking_lr,
+                },
+                {
+                        "params"      : [
+                                p for n, p in handshaking_param if any(nd in n for nd in no_decay)
+                        ],
+                        "weight_decay": 0.0,
+                        "lr"          : self.handshaking_lr,
+                },
         ]
 
         if self.optimizer == "adam":
             optimizer = torch.optim.Adam(
-                optimizer_grouped_parameters,
-                lr=self.lr
+                    optimizer_grouped_parameters,
+                    lr=self.lr
             )
-        elif self.optimizer=="adamw":
+        elif self.optimizer == "adamw":
             # revisiting few-sample BERT Fine-tuning https://arxiv.org/pdf/2006.05987.pdf
             # https://github.com/asappresearch/revisit-bert-finetuning/blob/master/run_glue.py
             optimizer = torch.optim.AdamW(
-                optimizer_grouped_parameters,
-                lr=self.lr,
-                eps=self.adam_epsilon,
-                weight_decay=self.weight_decay
+                    optimizer_grouped_parameters,
+                    lr=self.lr,
+                    eps=self.adam_epsilon,
+                    weight_decay=self.weight_decay
             )
         else:
             optimizer = torch.optim.AdamW(
-                optimizer_grouped_parameters,
-                lr=self.lr,
-                eps=self.adam_epsilon,
-                weight_decay=self.weight_decay)
+                    optimizer_grouped_parameters,
+                    lr=self.lr,
+                    eps=self.adam_epsilon,
+                    weight_decay=self.weight_decay)
         # num_gpus = len([x for x in str(self.trainer.gpus).split(",") if x.strip()])
-        num_gpus=self.trainer.num_devices
+        num_gpus = self.trainer.num_devices
         # 注：只有在使用pytorch Lightning的LightningDataModule 时候才可以使用该方式回去训练集大小
         t_total = (
-            len(self.trainer.datamodule.train_dataloader())
-            // (self.trainer.accumulate_grad_batches * num_gpus)
-            + 1
-        ) * self.trainer.max_epochs
+                          len(self.trainer.datamodule.train_dataloader())
+                          // (self.trainer.accumulate_grad_batches * num_gpus)
+                          + 1
+                  ) * self.trainer.max_epochs
         warmup_steps = int(self.warmup_proportion * t_total)
-        
+
         if self.lr_scheduler == "onecycle":
             scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                optimizer,
-                max_lr=self.lr,
-                pct_start=float(warmup_steps / t_total),
-                final_div_factor=self.final_div_factor,
-                total_steps=t_total,
-                anneal_strategy="linear",
+                    optimizer,
+                    max_lr=self.lr,
+                    pct_start=float(warmup_steps / t_total),
+                    final_div_factor=self.final_div_factor,
+                    total_steps=t_total,
+                    anneal_strategy="linear",
             )
         elif self.lr_scheduler == "linear":
             scheduler = get_linear_schedule_with_warmup(
-                optimizer, num_warmup_steps=warmup_steps, num_training_steps=t_total
+                    optimizer, num_warmup_steps=warmup_steps, num_training_steps=t_total
             )
         elif self.lr_scheduler == "polydecay":
             scheduler = get_polynomial_decay_schedule_with_warmup(
-                optimizer, warmup_steps, t_total, lr_end=self.lr / 4.0
+                    optimizer, warmup_steps, t_total, lr_end=self.lr / 4.0
             )
         elif self.lr_scheduler == "cawr":
             # TODO
             step = (len(self.trainer.datamodule.train_dataloader())) // (
-                self.trainer.accumulate_grad_batches * num_gpus
-            )+1
+                    self.trainer.accumulate_grad_batches * num_gpus
+            ) + 1
             scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-                optimizer, step * self.rewarm_epoch_num, 1
+                    optimizer, step * self.rewarm_epoch_num, 1
             )
         else:
             raise ValueError("lr_scheduler does not exist.")
@@ -370,10 +366,10 @@ class TplinkerPlusNerModule(pl.LightningModule):
     def forward(self, input_ids, attention_mask, token_type_ids, is_training=True):
         """forward inputs to BERT models."""
         return self.model.forward(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            is_training=is_training,
+                input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                is_training=is_training,
         )
 
     def compute_loss(self, inputs, target):
@@ -388,18 +384,18 @@ class TplinkerPlusNerModule(pl.LightningModule):
         # print(f"label_shape={label.shape}")
         # logits=self.forward(input_ids=input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids,is_training=False)
         logits, sampled_tok_pair_indices = self.forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            is_training=True
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                is_training=True
         )
         label = label.gather(
-            1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.num_labels)
+                1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.num_labels)
         )
         total_loss = self.compute_loss(logits, label)
-        self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], prog_bar=True,sync_dist=True)
-        self.log("train_loss", total_loss, prog_bar=True,sync_dist=True)
-       
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]["lr"], prog_bar=True, sync_dist=True)
+        self.log("train_loss", total_loss, prog_bar=True, sync_dist=True)
+
         return total_loss
 
     def validation_step(self, batch, batch_idx):
@@ -408,24 +404,24 @@ class TplinkerPlusNerModule(pl.LightningModule):
         token_type_ids = batch["token_type_ids"]
         labels = batch["labels"]
         logits = self.forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            is_training=False,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                is_training=False,
         )
         total_loss = self.compute_loss(logits, labels)
-        self.log("valid_loss", total_loss, prog_bar=True,sync_dist=True)
-    
+        self.log("valid_loss", total_loss, prog_bar=True, sync_dist=True)
+
         self.metric.update(logits, labels)
 
-    def  on_validation_epoch_end(self):
+    def on_validation_epoch_end(self):
         mapk2ij = self.trainer.datamodule.mapk2ij
-        p, r, f1 = self.metric.compute(mapk2ij,rank=self.global_rank)
-        self.log("f1",f1,on_epoch=True,sync_dist=True)
+        p, r, f1 = self.metric.compute(mapk2ij, rank=self.global_rank)
+        self.log("f1", f1, on_epoch=True, sync_dist=True)
 
         print(f"\np={p},r={r},f1={f1}\n")
         self.metric.reset()
-    
+
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         if self.global_rank == 0:
             save_path = os.path.join(self.trainer.default_root_dir, "saved_model")
@@ -437,7 +433,6 @@ class TplinkerPlusNerLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("model.bert_model", "data.bert_model")
         parser.link_arguments("model.num_labels", "data.num_labels")
-
 
 
 def main():

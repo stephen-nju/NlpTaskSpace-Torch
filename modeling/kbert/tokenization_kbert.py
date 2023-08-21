@@ -26,68 +26,40 @@
 
 """Tokenization classes for KBert."""
 
-
-
-
-
 import collections
-
 import os
-
-import unicodedata
-
 from typing import List, Optional, Tuple
 
-
-
-from ...tokenization_utils import PreTrainedTokenizer, _is_control, _is_punctuation, _is_whitespace
-
-from ...utils import logging
-
-
-
-
+import unicodedata
+from transformers.tokenization_utils import PreTrainedTokenizer, _is_control, _is_punctuation, _is_whitespace
+from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
-
-
 VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt"}
-
-
-
-
 
 PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
 
-    "kbert-base-uncased": 512,
+        "kbert-base-uncased": 512,
 
 }
-
-
 
 PRETRAINED_INIT_CONFIGURATION = {
 
-    "kbert-base-uncased": {"do_lower_case": True},
+        "kbert-base-uncased": {"do_lower_case": True},
 
 }
 
 
-
-
-
 def load_vocab(vocab_file):
-
     """Loads a vocabulary file into a dictionary."""
 
     vocab = collections.OrderedDict()
 
     with open(vocab_file, "r", encoding="utf-8") as reader:
-
         tokens = reader.readlines()
 
     for index, token in enumerate(tokens):
-
         token = token.rstrip("\n")
 
         vocab[token] = index
@@ -95,17 +67,12 @@ def load_vocab(vocab_file):
     return vocab
 
 
-
-
-
 def whitespace_tokenize(text):
-
     """Runs basic whitespace cleaning and splitting on a piece of text."""
 
     text = text.strip()
 
     if not text:
-
         return []
 
     tokens = text.split()
@@ -113,11 +80,7 @@ def whitespace_tokenize(text):
     return tokens
 
 
-
-
-
 class KBertTokenizer(PreTrainedTokenizer):
-
     r"""
 
     Construct a BERT tokenizer. Based on WordPiece.
@@ -198,8 +161,6 @@ class KBertTokenizer(PreTrainedTokenizer):
 
     """
 
-
-
     vocab_files_names = VOCAB_FILES_NAMES
 
     # pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
@@ -208,73 +169,68 @@ class KBertTokenizer(PreTrainedTokenizer):
 
     max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
 
-
-
     def __init__(
 
-        self,
+            self,
 
-        vocab_file,
+            vocab_file,
 
-        do_lower_case=True,
+            do_lower_case=True,
 
-        do_basic_tokenize=True,
+            do_basic_tokenize=True,
 
-        never_split=None,
+            never_split=None,
 
-        unk_token="[UNK]",
+            unk_token="[UNK]",
 
-        sep_token="[SEP]",
+            sep_token="[SEP]",
 
-        pad_token="[PAD]",
+            pad_token="[PAD]",
 
-        cls_token="[CLS]",
+            cls_token="[CLS]",
 
-        mask_token="[MASK]",
+            mask_token="[MASK]",
 
-        tokenize_chinese_chars=True,
+            tokenize_chinese_chars=True,
 
-        strip_accents=None,
+            strip_accents=None,
 
-        **kwargs
+            **kwargs
 
     ):
 
         super().__init__(
 
-            do_lower_case=do_lower_case,
+                do_lower_case=do_lower_case,
 
-            do_basic_tokenize=do_basic_tokenize,
+                do_basic_tokenize=do_basic_tokenize,
 
-            never_split=never_split,
+                never_split=never_split,
 
-            unk_token=unk_token,
+                unk_token=unk_token,
 
-            sep_token=sep_token,
+                sep_token=sep_token,
 
-            pad_token=pad_token,
+                pad_token=pad_token,
 
-            cls_token=cls_token,
+                cls_token=cls_token,
 
-            mask_token=mask_token,
+                mask_token=mask_token,
 
-            tokenize_chinese_chars=tokenize_chinese_chars,
+                tokenize_chinese_chars=tokenize_chinese_chars,
 
-            strip_accents=strip_accents,
+                strip_accents=strip_accents,
 
-            **kwargs,
+                **kwargs,
 
         )
 
-
-
         if not os.path.isfile(vocab_file):
-
             raise ValueError(
 
-                f"Can't find a vocabulary file at path '{vocab_file}'. To load the vocabulary from a Google pretrained "
+                    f"Can't find a vocabulary file at path '{vocab_file}'. To load the vocabulary from a Google pretrained "
 
-                "model use `tokenizer = KBertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`"
+                    "model use `tokenizer = KBertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`"
 
             )
 
@@ -285,44 +241,33 @@ class KBertTokenizer(PreTrainedTokenizer):
         self.do_basic_tokenize = do_basic_tokenize
 
         if do_basic_tokenize:
-
             self.basic_tokenizer = BasicTokenizer(
 
-                do_lower_case=do_lower_case,
+                    do_lower_case=do_lower_case,
 
-                never_split=never_split,
+                    never_split=never_split,
 
-                tokenize_chinese_chars=tokenize_chinese_chars,
+                    tokenize_chinese_chars=tokenize_chinese_chars,
 
-                strip_accents=strip_accents,
+                    strip_accents=strip_accents,
 
             )
 
         self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab, unk_token=self.unk_token)
 
-
-
     @property
-
     def do_lower_case(self):
 
         return self.basic_tokenizer.do_lower_case
 
-
-
     @property
-
     def vocab_size(self):
 
         return len(self.vocab)
 
-
-
     def get_vocab(self):
 
         return dict(self.vocab, **self.added_tokens_encoder)
-
-
 
     def _tokenize(self, text):
 
@@ -331,8 +276,6 @@ class KBertTokenizer(PreTrainedTokenizer):
         if self.do_basic_tokenize:
 
             for token in self.basic_tokenizer.tokenize(text, never_split=self.all_special_tokens):
-
-
 
                 # If the token is part of the never_split set
 
@@ -350,23 +293,17 @@ class KBertTokenizer(PreTrainedTokenizer):
 
         return split_tokens
 
-
-
     def _convert_token_to_id(self, token):
 
         """Converts a token (str) in an id using the vocab."""
 
         return self.vocab.get(token, self.vocab.get(self.unk_token))
 
-
-
     def _convert_id_to_token(self, index):
 
         """Converts an index (integer) in a token (str) using the vocab."""
 
         return self.ids_to_tokens.get(index, self.unk_token)
-
-
 
     def convert_tokens_to_string(self, tokens):
 
@@ -376,11 +313,9 @@ class KBertTokenizer(PreTrainedTokenizer):
 
         return out_string
 
-
-
     def build_inputs_with_special_tokens(
 
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
+            self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
 
     ) -> List[int]:
 
@@ -417,7 +352,6 @@ class KBertTokenizer(PreTrainedTokenizer):
         """
 
         if token_ids_1 is None:
-
             return [self.cls_token_id] + token_ids_0 + [self.sep_token_id]
 
         cls = [self.cls_token_id]
@@ -426,11 +360,10 @@ class KBertTokenizer(PreTrainedTokenizer):
 
         return cls + token_ids_0 + sep + token_ids_1 + sep
 
-
-
     def get_special_tokens_mask(
 
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None, already_has_special_tokens: bool = False
+            self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None,
+            already_has_special_tokens: bool = False
 
     ) -> List[int]:
 
@@ -464,29 +397,21 @@ class KBertTokenizer(PreTrainedTokenizer):
 
         """
 
-
-
         if already_has_special_tokens:
-
             return super().get_special_tokens_mask(
 
-                token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
+                    token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
 
             )
 
-
-
         if token_ids_1 is not None:
-
             return [1] + ([0] * len(token_ids_0)) + [1] + ([0] * len(token_ids_1)) + [1]
 
         return [1] + ([0] * len(token_ids_0)) + [1]
 
-
-
     def create_token_type_ids_from_sequences(
 
-        self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
+            self, token_ids_0: List[int], token_ids_1: Optional[List[int]] = None
 
     ) -> List[int]:
 
@@ -537,12 +462,9 @@ class KBertTokenizer(PreTrainedTokenizer):
         cls = [self.cls_token_id]
 
         if token_ids_1 is None:
-
             return len(cls + token_ids_0 + sep) * [0]
 
         return len(cls + token_ids_0 + sep) * [0] + len(token_ids_1 + sep) * [1]
-
-
 
     def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
 
@@ -552,7 +474,7 @@ class KBertTokenizer(PreTrainedTokenizer):
 
             vocab_file = os.path.join(
 
-                save_directory, (filename_prefix + "-" if filename_prefix else "") + VOCAB_FILES_NAMES["vocab_file"]
+                    save_directory, (filename_prefix + "-" if filename_prefix else "") + VOCAB_FILES_NAMES["vocab_file"]
 
             )
 
@@ -565,12 +487,11 @@ class KBertTokenizer(PreTrainedTokenizer):
             for token, token_index in sorted(self.vocab.items(), key=lambda kv: kv[1]):
 
                 if index != token_index:
-
                     logger.warning(
 
-                        f"Saving vocabulary to {vocab_file}: vocabulary indices are not consecutive."
+                            f"Saving vocabulary to {vocab_file}: vocabulary indices are not consecutive."
 
-                        " Please check that the vocabulary is not corrupted!"
+                            " Please check that the vocabulary is not corrupted!"
 
                     )
 
@@ -583,11 +504,7 @@ class KBertTokenizer(PreTrainedTokenizer):
         return (vocab_file,)
 
 
-
-
-
 class BasicTokenizer(object):
-
     """
 
     Constructs a BasicTokenizer that will run basic tokenization (punctuation splitting, lower casing, etc.).
@@ -624,12 +541,9 @@ class BasicTokenizer(object):
 
     """
 
-
-
     def __init__(self, do_lower_case=True, never_split=None, tokenize_chinese_chars=True, strip_accents=None):
 
         if never_split is None:
-
             never_split = []
 
         self.do_lower_case = do_lower_case
@@ -639,8 +553,6 @@ class BasicTokenizer(object):
         self.tokenize_chinese_chars = tokenize_chinese_chars
 
         self.strip_accents = strip_accents
-
-
 
     def tokenize(self, text, never_split=None):
 
@@ -668,8 +580,6 @@ class BasicTokenizer(object):
 
         text = self._clean_text(text)
 
-
-
         # This was added on November 1st, 2018 for the multilingual and Chinese
 
         # models. This is also applied to the English models now, but it doesn't
@@ -683,7 +593,6 @@ class BasicTokenizer(object):
         # words in the English Wikipedia.).
 
         if self.tokenize_chinese_chars:
-
             text = self._tokenize_chinese_chars(text)
 
         orig_tokens = whitespace_tokenize(text)
@@ -699,7 +608,6 @@ class BasicTokenizer(object):
                     token = token.lower()
 
                     if self.strip_accents is not False:
-
                         token = self._run_strip_accents(token)
 
                 elif self.strip_accents:
@@ -708,13 +616,9 @@ class BasicTokenizer(object):
 
             split_tokens.extend(self._run_split_on_punc(token, never_split))
 
-
-
         output_tokens = whitespace_tokenize(" ".join(split_tokens))
 
         return output_tokens
-
-
 
     def _run_strip_accents(self, text):
 
@@ -729,21 +633,17 @@ class BasicTokenizer(object):
             cat = unicodedata.category(char)
 
             if cat == "Mn":
-
                 continue
 
             output.append(char)
 
         return "".join(output)
 
-
-
     def _run_split_on_punc(self, text, never_split=None):
 
         """Splits punctuation on a piece of text."""
 
         if never_split is not None and text in never_split:
-
             return [text]
 
         chars = list(text)
@@ -767,7 +667,6 @@ class BasicTokenizer(object):
             else:
 
                 if start_new_word:
-
                     output.append([])
 
                 start_new_word = False
@@ -776,11 +675,7 @@ class BasicTokenizer(object):
 
             i += 1
 
-
-
         return ["".join(x) for x in output]
-
-
 
     def _tokenize_chinese_chars(self, text):
 
@@ -806,8 +701,6 @@ class BasicTokenizer(object):
 
         return "".join(output)
 
-
-
     def _is_chinese_char(self, cp):
 
         """Checks whether CP is the codepoint of a CJK character."""
@@ -830,31 +723,27 @@ class BasicTokenizer(object):
 
         if (
 
-            (cp >= 0x4E00 and cp <= 0x9FFF)
+                (cp >= 0x4E00 and cp <= 0x9FFF)
 
-            or (cp >= 0x3400 and cp <= 0x4DBF)  #
+                or (cp >= 0x3400 and cp <= 0x4DBF)  #
 
-            or (cp >= 0x20000 and cp <= 0x2A6DF)  #
+                or (cp >= 0x20000 and cp <= 0x2A6DF)  #
 
-            or (cp >= 0x2A700 and cp <= 0x2B73F)  #
+                or (cp >= 0x2A700 and cp <= 0x2B73F)  #
 
-            or (cp >= 0x2B740 and cp <= 0x2B81F)  #
+                or (cp >= 0x2B740 and cp <= 0x2B81F)  #
 
-            or (cp >= 0x2B820 and cp <= 0x2CEAF)  #
+                or (cp >= 0x2B820 and cp <= 0x2CEAF)  #
 
-            or (cp >= 0xF900 and cp <= 0xFAFF)
+                or (cp >= 0xF900 and cp <= 0xFAFF)
 
-            or (cp >= 0x2F800 and cp <= 0x2FA1F)  #
+                or (cp >= 0x2F800 and cp <= 0x2FA1F)  #
 
         ):  #
 
             return True
 
-
-
         return False
-
-
 
     def _clean_text(self, text):
 
@@ -867,7 +756,6 @@ class BasicTokenizer(object):
             cp = ord(char)
 
             if cp == 0 or cp == 0xFFFD or _is_control(char):
-
                 continue
 
             if _is_whitespace(char):
@@ -881,14 +769,8 @@ class BasicTokenizer(object):
         return "".join(output)
 
 
-
-
-
 class WordpieceTokenizer(object):
-
     """Runs WordPiece tokenization."""
-
-
 
     def __init__(self, vocab, unk_token, max_input_chars_per_word=100):
 
@@ -897,8 +779,6 @@ class WordpieceTokenizer(object):
         self.unk_token = unk_token
 
         self.max_input_chars_per_word = max_input_chars_per_word
-
-
 
     def tokenize(self, text):
 
@@ -928,8 +808,6 @@ class WordpieceTokenizer(object):
 
         """
 
-
-
         output_tokens = []
 
         for token in whitespace_tokenize(text):
@@ -937,12 +815,9 @@ class WordpieceTokenizer(object):
             chars = list(token)
 
             if len(chars) > self.max_input_chars_per_word:
-
                 output_tokens.append(self.unk_token)
 
                 continue
-
-
 
             is_bad = False
 
@@ -961,11 +836,9 @@ class WordpieceTokenizer(object):
                     substr = "".join(chars[start:end])
 
                     if start > 0:
-
                         substr = "##" + substr
 
                     if substr in self.vocab:
-
                         cur_substr = substr
 
                         break
@@ -973,7 +846,6 @@ class WordpieceTokenizer(object):
                     end -= 1
 
                 if cur_substr is None:
-
                     is_bad = True
 
                     break
@@ -981,8 +853,6 @@ class WordpieceTokenizer(object):
                 sub_tokens.append(cur_substr)
 
                 start = end
-
-
 
             if is_bad:
 
@@ -993,5 +863,3 @@ class WordpieceTokenizer(object):
                 output_tokens.extend(sub_tokens)
 
         return output_tokens
-
-
