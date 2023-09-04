@@ -1,6 +1,7 @@
 scripts/evaluation_of_information_extraction/chatgpt_api_request.py
 scripts/evaluation_of_information_extraction/data_format_convert/*.txt
 scripts/evaluation_of_information_extraction/*.txt
+scripts/kbert/*.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 **/__pycache__
